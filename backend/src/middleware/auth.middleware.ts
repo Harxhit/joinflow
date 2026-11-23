@@ -28,6 +28,7 @@ const authMiddleWare = async (
       select: {
         id: true,
         tokenVersion: true,
+        role: true
       },
     });
 
@@ -38,7 +39,7 @@ const authMiddleWare = async (
       });
     }
 
-    request.user = {id: user.id,};
+    request.user = {id: user.id, role: user.role};
 
     return next();
 

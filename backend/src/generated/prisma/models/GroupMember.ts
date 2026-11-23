@@ -189,16 +189,16 @@ export type GroupMemberOrderByWithRelationInput = {
 
 export type GroupMemberWhereUniqueInput = Prisma.AtLeast<{
   id?: string
+  userId?: string
   userId_groupId?: Prisma.GroupMemberUserIdGroupIdCompoundUniqueInput
   AND?: Prisma.GroupMemberWhereInput | Prisma.GroupMemberWhereInput[]
   OR?: Prisma.GroupMemberWhereInput[]
   NOT?: Prisma.GroupMemberWhereInput | Prisma.GroupMemberWhereInput[]
-  userId?: Prisma.StringFilter<"GroupMember"> | string
   groupId?: Prisma.StringFilter<"GroupMember"> | string
   joinedAt?: Prisma.DateTimeFilter<"GroupMember"> | Date | string
   user?: Prisma.XOR<Prisma.UserScalarRelationFilter, Prisma.UserWhereInput>
   group?: Prisma.XOR<Prisma.GroupScalarRelationFilter, Prisma.GroupWhereInput>
-}, "id" | "userId_groupId">
+}, "id" | "userId" | "userId_groupId">
 
 export type GroupMemberOrderByWithAggregationInput = {
   id?: Prisma.SortOrder

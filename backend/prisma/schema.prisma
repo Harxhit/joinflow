@@ -37,8 +37,7 @@ model User {
 model Group {
   id          String   @id @default(uuid())
   name        String
-  description String?
-  createdById String
+  createdById String  
   createdAt   DateTime @default(now())
 
   createdBy   User          @relation("GroupCreator", fields: [createdById], references: [id])
@@ -49,7 +48,7 @@ model Group {
 
 model GroupMember {
   id       String   @id @default(uuid())
-  userId   String
+  userId   String   @unique
   groupId  String
   joinedAt DateTime @default(now())
 

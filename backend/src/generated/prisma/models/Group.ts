@@ -27,7 +27,6 @@ export type AggregateGroup = {
 export type GroupMinAggregateOutputType = {
   id: string | null
   name: string | null
-  description: string | null
   createdById: string | null
   createdAt: Date | null
 }
@@ -35,7 +34,6 @@ export type GroupMinAggregateOutputType = {
 export type GroupMaxAggregateOutputType = {
   id: string | null
   name: string | null
-  description: string | null
   createdById: string | null
   createdAt: Date | null
 }
@@ -43,7 +41,6 @@ export type GroupMaxAggregateOutputType = {
 export type GroupCountAggregateOutputType = {
   id: number
   name: number
-  description: number
   createdById: number
   createdAt: number
   _all: number
@@ -53,7 +50,6 @@ export type GroupCountAggregateOutputType = {
 export type GroupMinAggregateInputType = {
   id?: true
   name?: true
-  description?: true
   createdById?: true
   createdAt?: true
 }
@@ -61,7 +57,6 @@ export type GroupMinAggregateInputType = {
 export type GroupMaxAggregateInputType = {
   id?: true
   name?: true
-  description?: true
   createdById?: true
   createdAt?: true
 }
@@ -69,7 +64,6 @@ export type GroupMaxAggregateInputType = {
 export type GroupCountAggregateInputType = {
   id?: true
   name?: true
-  description?: true
   createdById?: true
   createdAt?: true
   _all?: true
@@ -150,7 +144,6 @@ export type GroupGroupByArgs<ExtArgs extends runtime.Types.Extensions.InternalAr
 export type GroupGroupByOutputType = {
   id: string
   name: string
-  description: string | null
   createdById: string
   createdAt: Date
   _count: GroupCountAggregateOutputType | null
@@ -179,7 +172,6 @@ export type GroupWhereInput = {
   NOT?: Prisma.GroupWhereInput | Prisma.GroupWhereInput[]
   id?: Prisma.StringFilter<"Group"> | string
   name?: Prisma.StringFilter<"Group"> | string
-  description?: Prisma.StringNullableFilter<"Group"> | string | null
   createdById?: Prisma.StringFilter<"Group"> | string
   createdAt?: Prisma.DateTimeFilter<"Group"> | Date | string
   createdBy?: Prisma.XOR<Prisma.UserScalarRelationFilter, Prisma.UserWhereInput>
@@ -191,7 +183,6 @@ export type GroupWhereInput = {
 export type GroupOrderByWithRelationInput = {
   id?: Prisma.SortOrder
   name?: Prisma.SortOrder
-  description?: Prisma.SortOrderInput | Prisma.SortOrder
   createdById?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   createdBy?: Prisma.UserOrderByWithRelationInput
@@ -206,7 +197,6 @@ export type GroupWhereUniqueInput = Prisma.AtLeast<{
   OR?: Prisma.GroupWhereInput[]
   NOT?: Prisma.GroupWhereInput | Prisma.GroupWhereInput[]
   name?: Prisma.StringFilter<"Group"> | string
-  description?: Prisma.StringNullableFilter<"Group"> | string | null
   createdById?: Prisma.StringFilter<"Group"> | string
   createdAt?: Prisma.DateTimeFilter<"Group"> | Date | string
   createdBy?: Prisma.XOR<Prisma.UserScalarRelationFilter, Prisma.UserWhereInput>
@@ -218,7 +208,6 @@ export type GroupWhereUniqueInput = Prisma.AtLeast<{
 export type GroupOrderByWithAggregationInput = {
   id?: Prisma.SortOrder
   name?: Prisma.SortOrder
-  description?: Prisma.SortOrderInput | Prisma.SortOrder
   createdById?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   _count?: Prisma.GroupCountOrderByAggregateInput
@@ -232,7 +221,6 @@ export type GroupScalarWhereWithAggregatesInput = {
   NOT?: Prisma.GroupScalarWhereWithAggregatesInput | Prisma.GroupScalarWhereWithAggregatesInput[]
   id?: Prisma.StringWithAggregatesFilter<"Group"> | string
   name?: Prisma.StringWithAggregatesFilter<"Group"> | string
-  description?: Prisma.StringNullableWithAggregatesFilter<"Group"> | string | null
   createdById?: Prisma.StringWithAggregatesFilter<"Group"> | string
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"Group"> | Date | string
 }
@@ -240,7 +228,6 @@ export type GroupScalarWhereWithAggregatesInput = {
 export type GroupCreateInput = {
   id?: string
   name: string
-  description?: string | null
   createdAt?: Date | string
   createdBy: Prisma.UserCreateNestedOneWithoutCreatedGroupsInput
   members?: Prisma.GroupMemberCreateNestedManyWithoutGroupInput
@@ -251,7 +238,6 @@ export type GroupCreateInput = {
 export type GroupUncheckedCreateInput = {
   id?: string
   name: string
-  description?: string | null
   createdById: string
   createdAt?: Date | string
   members?: Prisma.GroupMemberUncheckedCreateNestedManyWithoutGroupInput
@@ -262,7 +248,6 @@ export type GroupUncheckedCreateInput = {
 export type GroupUpdateInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
-  description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   createdBy?: Prisma.UserUpdateOneRequiredWithoutCreatedGroupsNestedInput
   members?: Prisma.GroupMemberUpdateManyWithoutGroupNestedInput
@@ -273,7 +258,6 @@ export type GroupUpdateInput = {
 export type GroupUncheckedUpdateInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
-  description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdById?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   members?: Prisma.GroupMemberUncheckedUpdateManyWithoutGroupNestedInput
@@ -284,7 +268,6 @@ export type GroupUncheckedUpdateInput = {
 export type GroupCreateManyInput = {
   id?: string
   name: string
-  description?: string | null
   createdById: string
   createdAt?: Date | string
 }
@@ -292,14 +275,12 @@ export type GroupCreateManyInput = {
 export type GroupUpdateManyMutationInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
-  description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
 
 export type GroupUncheckedUpdateManyInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
-  description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdById?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -317,7 +298,6 @@ export type GroupOrderByRelationAggregateInput = {
 export type GroupCountOrderByAggregateInput = {
   id?: Prisma.SortOrder
   name?: Prisma.SortOrder
-  description?: Prisma.SortOrder
   createdById?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
 }
@@ -325,7 +305,6 @@ export type GroupCountOrderByAggregateInput = {
 export type GroupMaxOrderByAggregateInput = {
   id?: Prisma.SortOrder
   name?: Prisma.SortOrder
-  description?: Prisma.SortOrder
   createdById?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
 }
@@ -333,7 +312,6 @@ export type GroupMaxOrderByAggregateInput = {
 export type GroupMinOrderByAggregateInput = {
   id?: Prisma.SortOrder
   name?: Prisma.SortOrder
-  description?: Prisma.SortOrder
   createdById?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
 }
@@ -430,7 +408,6 @@ export type GroupUpdateOneRequiredWithoutSubmissionsNestedInput = {
 export type GroupCreateWithoutCreatedByInput = {
   id?: string
   name: string
-  description?: string | null
   createdAt?: Date | string
   members?: Prisma.GroupMemberCreateNestedManyWithoutGroupInput
   assignments?: Prisma.AssignmentGroupCreateNestedManyWithoutGroupInput
@@ -440,7 +417,6 @@ export type GroupCreateWithoutCreatedByInput = {
 export type GroupUncheckedCreateWithoutCreatedByInput = {
   id?: string
   name: string
-  description?: string | null
   createdAt?: Date | string
   members?: Prisma.GroupMemberUncheckedCreateNestedManyWithoutGroupInput
   assignments?: Prisma.AssignmentGroupUncheckedCreateNestedManyWithoutGroupInput
@@ -479,7 +455,6 @@ export type GroupScalarWhereInput = {
   NOT?: Prisma.GroupScalarWhereInput | Prisma.GroupScalarWhereInput[]
   id?: Prisma.StringFilter<"Group"> | string
   name?: Prisma.StringFilter<"Group"> | string
-  description?: Prisma.StringNullableFilter<"Group"> | string | null
   createdById?: Prisma.StringFilter<"Group"> | string
   createdAt?: Prisma.DateTimeFilter<"Group"> | Date | string
 }
@@ -487,7 +462,6 @@ export type GroupScalarWhereInput = {
 export type GroupCreateWithoutMembersInput = {
   id?: string
   name: string
-  description?: string | null
   createdAt?: Date | string
   createdBy: Prisma.UserCreateNestedOneWithoutCreatedGroupsInput
   assignments?: Prisma.AssignmentGroupCreateNestedManyWithoutGroupInput
@@ -497,7 +471,6 @@ export type GroupCreateWithoutMembersInput = {
 export type GroupUncheckedCreateWithoutMembersInput = {
   id?: string
   name: string
-  description?: string | null
   createdById: string
   createdAt?: Date | string
   assignments?: Prisma.AssignmentGroupUncheckedCreateNestedManyWithoutGroupInput
@@ -523,7 +496,6 @@ export type GroupUpdateToOneWithWhereWithoutMembersInput = {
 export type GroupUpdateWithoutMembersInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
-  description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   createdBy?: Prisma.UserUpdateOneRequiredWithoutCreatedGroupsNestedInput
   assignments?: Prisma.AssignmentGroupUpdateManyWithoutGroupNestedInput
@@ -533,7 +505,6 @@ export type GroupUpdateWithoutMembersInput = {
 export type GroupUncheckedUpdateWithoutMembersInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
-  description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdById?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   assignments?: Prisma.AssignmentGroupUncheckedUpdateManyWithoutGroupNestedInput
@@ -543,7 +514,6 @@ export type GroupUncheckedUpdateWithoutMembersInput = {
 export type GroupCreateWithoutAssignmentsInput = {
   id?: string
   name: string
-  description?: string | null
   createdAt?: Date | string
   createdBy: Prisma.UserCreateNestedOneWithoutCreatedGroupsInput
   members?: Prisma.GroupMemberCreateNestedManyWithoutGroupInput
@@ -553,7 +523,6 @@ export type GroupCreateWithoutAssignmentsInput = {
 export type GroupUncheckedCreateWithoutAssignmentsInput = {
   id?: string
   name: string
-  description?: string | null
   createdById: string
   createdAt?: Date | string
   members?: Prisma.GroupMemberUncheckedCreateNestedManyWithoutGroupInput
@@ -579,7 +548,6 @@ export type GroupUpdateToOneWithWhereWithoutAssignmentsInput = {
 export type GroupUpdateWithoutAssignmentsInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
-  description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   createdBy?: Prisma.UserUpdateOneRequiredWithoutCreatedGroupsNestedInput
   members?: Prisma.GroupMemberUpdateManyWithoutGroupNestedInput
@@ -589,7 +557,6 @@ export type GroupUpdateWithoutAssignmentsInput = {
 export type GroupUncheckedUpdateWithoutAssignmentsInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
-  description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdById?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   members?: Prisma.GroupMemberUncheckedUpdateManyWithoutGroupNestedInput
@@ -599,7 +566,6 @@ export type GroupUncheckedUpdateWithoutAssignmentsInput = {
 export type GroupCreateWithoutSubmissionsInput = {
   id?: string
   name: string
-  description?: string | null
   createdAt?: Date | string
   createdBy: Prisma.UserCreateNestedOneWithoutCreatedGroupsInput
   members?: Prisma.GroupMemberCreateNestedManyWithoutGroupInput
@@ -609,7 +575,6 @@ export type GroupCreateWithoutSubmissionsInput = {
 export type GroupUncheckedCreateWithoutSubmissionsInput = {
   id?: string
   name: string
-  description?: string | null
   createdById: string
   createdAt?: Date | string
   members?: Prisma.GroupMemberUncheckedCreateNestedManyWithoutGroupInput
@@ -635,7 +600,6 @@ export type GroupUpdateToOneWithWhereWithoutSubmissionsInput = {
 export type GroupUpdateWithoutSubmissionsInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
-  description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   createdBy?: Prisma.UserUpdateOneRequiredWithoutCreatedGroupsNestedInput
   members?: Prisma.GroupMemberUpdateManyWithoutGroupNestedInput
@@ -645,7 +609,6 @@ export type GroupUpdateWithoutSubmissionsInput = {
 export type GroupUncheckedUpdateWithoutSubmissionsInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
-  description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdById?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   members?: Prisma.GroupMemberUncheckedUpdateManyWithoutGroupNestedInput
@@ -655,14 +618,12 @@ export type GroupUncheckedUpdateWithoutSubmissionsInput = {
 export type GroupCreateManyCreatedByInput = {
   id?: string
   name: string
-  description?: string | null
   createdAt?: Date | string
 }
 
 export type GroupUpdateWithoutCreatedByInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
-  description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   members?: Prisma.GroupMemberUpdateManyWithoutGroupNestedInput
   assignments?: Prisma.AssignmentGroupUpdateManyWithoutGroupNestedInput
@@ -672,7 +633,6 @@ export type GroupUpdateWithoutCreatedByInput = {
 export type GroupUncheckedUpdateWithoutCreatedByInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
-  description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   members?: Prisma.GroupMemberUncheckedUpdateManyWithoutGroupNestedInput
   assignments?: Prisma.AssignmentGroupUncheckedUpdateManyWithoutGroupNestedInput
@@ -682,7 +642,6 @@ export type GroupUncheckedUpdateWithoutCreatedByInput = {
 export type GroupUncheckedUpdateManyWithoutCreatedByInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
-  description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
 
@@ -738,7 +697,6 @@ export type GroupCountOutputTypeCountSubmissionsArgs<ExtArgs extends runtime.Typ
 export type GroupSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
   name?: boolean
-  description?: boolean
   createdById?: boolean
   createdAt?: boolean
   createdBy?: boolean | Prisma.UserDefaultArgs<ExtArgs>
@@ -751,7 +709,6 @@ export type GroupSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = 
 export type GroupSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
   name?: boolean
-  description?: boolean
   createdById?: boolean
   createdAt?: boolean
   createdBy?: boolean | Prisma.UserDefaultArgs<ExtArgs>
@@ -760,7 +717,6 @@ export type GroupSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extensi
 export type GroupSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
   name?: boolean
-  description?: boolean
   createdById?: boolean
   createdAt?: boolean
   createdBy?: boolean | Prisma.UserDefaultArgs<ExtArgs>
@@ -769,12 +725,11 @@ export type GroupSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensi
 export type GroupSelectScalar = {
   id?: boolean
   name?: boolean
-  description?: boolean
   createdById?: boolean
   createdAt?: boolean
 }
 
-export type GroupOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "name" | "description" | "createdById" | "createdAt", ExtArgs["result"]["group"]>
+export type GroupOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "name" | "createdById" | "createdAt", ExtArgs["result"]["group"]>
 export type GroupInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   createdBy?: boolean | Prisma.UserDefaultArgs<ExtArgs>
   members?: boolean | Prisma.Group$membersArgs<ExtArgs>
@@ -800,7 +755,6 @@ export type $GroupPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs 
   scalars: runtime.Types.Extensions.GetPayloadResult<{
     id: string
     name: string
-    description: string | null
     createdById: string
     createdAt: Date
   }, ExtArgs["result"]["group"]>
@@ -1232,7 +1186,6 @@ export interface Prisma__GroupClient<T, Null = never, ExtArgs extends runtime.Ty
 export interface GroupFieldRefs {
   readonly id: Prisma.FieldRef<"Group", 'String'>
   readonly name: Prisma.FieldRef<"Group", 'String'>
-  readonly description: Prisma.FieldRef<"Group", 'String'>
   readonly createdById: Prisma.FieldRef<"Group", 'String'>
   readonly createdAt: Prisma.FieldRef<"Group", 'DateTime'>
 }

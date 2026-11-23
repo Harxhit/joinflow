@@ -3,6 +3,7 @@ import cors from 'cors'
 import config from './config';
 import cookie from 'cookie-parser'
 import authRoute from './routes/auth.routes';
+import groupRoute from './routes/group.routes';
 
 const app = express()
 
@@ -36,6 +37,7 @@ app.use((request, response, next) => {
 
 //Routes
 app.use("/api/auth", authRoute)
+app.use("/api/group", groupRoute)
 
 app.get("/health", (_request, response) => {
   return response.status(200).json({
