@@ -44,7 +44,7 @@ export default function Navbar() {
     <header className="sticky top-0 z-40 border-b border-[#E3E5F1] bg-[#F6F7FB]/85 backdrop-blur">
       <nav className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
         <div className="flex items-center gap-8">
-          <Link to={user ? "/dashboard" : "/"} className="flex items-center gap-3">
+          <Link to={ "/dashboard"} className="flex items-center gap-3">
             <span className="relative block h-9 w-9">
               <span className="absolute left-1 top-1 h-full w-full rounded-lg bg-[#FFE14D]" />
               <span className="relative flex h-full w-full items-center justify-center rounded-lg bg-[#2336F0] text-white">
