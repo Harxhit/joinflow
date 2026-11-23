@@ -1,0 +1,102 @@
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  STUDENT
+  ADMIN
+}
+
+enum SubmissionStatus {
+  PENDING
+  SUBMITTED
+}
+
+model User {
+  id        String   @id @default(uuid())
+  name      String
+  email     String   @unique
+  studentId String?  @unique
+  password  String
+  tokenVersion Int   @default(0)
+  role      Role     @default(STUDENT)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  createdGroups Group[] @relation("GroupCreator")
+  memberships   GroupMember[]
+  assignments   Assignment[] @relation("AssignmentCreator")
+}
+
+model Group {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  createdById String
+  createdAt   DateTime @default(now())
+
+  createdBy   User          @relation("GroupCreator", fields: [createdById], references: [id])
+  members     GroupMember[]
+  assignments AssignmentGroup[]
+  submissions Submission[]
+}
+
+model GroupMember {
+  id       String   @id @default(uuid())
+  userId   String
+  groupId  String
+  joinedAt DateTime @default(now())
+
+  user  User  @relation(fields: [userId], references: [id])
+  group Group @relation(fields: [groupId], references: [id])
+
+  @@unique([userId, groupId])
+}
+
+model Assignment {
+  id          String   @id @default(uuid())
+  title       String
+  description String
+  dueDate     DateTime
+  oneDriveUrl String
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  submissions  Submission[]
+  createdBy User              @relation("AssignmentCreator", fields: [createdById], references: [id])
+  groups    AssignmentGroup[]
+}
+
+model AssignmentGroup {
+  id           String @id @default(uuid())
+  assignmentId String
+  groupId      String
+
+  assignment Assignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  group      Group      @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+
+  @@unique([assignmentId, groupId])
+}
+
+model Submission {
+  id           String           @id @default(uuid())
+  assignmentId String
+  groupId      String
+  status       SubmissionStatus @default(PENDING)
+  confirmedById String?
+  confirmedAt  DateTime?
+  createdAt    DateTime         @default(now())
+
+  assignment Assignment @relation(fields: [assignmentId], references: [id])
+  group      Group      @relation(fields: [groupId], references: [id])
+
+  @@unique([assignmentId, groupId])
+}
