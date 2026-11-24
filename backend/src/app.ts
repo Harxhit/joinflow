@@ -5,6 +5,7 @@ import cookie from 'cookie-parser'
 import authRoute from './routes/auth.routes';
 import groupRoute from './routes/group.routes';
 import assignmentRoute from './routes/assignment.routes';
+import submissionRoute from './routes/submission.route';
 
 const app = express()
 
@@ -40,6 +41,7 @@ app.use((request, response, next) => {
 app.use("/api/auth", authRoute)
 app.use("/api/group", groupRoute)
 app.use("/api/assignment", assignmentRoute)
+app.use("/api/submission", submissionRoute)
 
 app.get("/health", (_request, response) => {
   return response.status(200).json({

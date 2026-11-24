@@ -13,92 +13,32 @@ import {
 import Navbar from "./Navbar";
 import { useAuth } from "../context/AuthContext";
 import api from "../services/api";
+import {
+  PENDING,
+  errMsg,
+  toAssignment,
+  toAssignmentDetail,
+  toGroup,
+  toSubmission,
+  type Assignment,
+  type Group,
+  type Submission,
+} from "../lib/mapper";
 
 type AppUser = { id: string; name: string; email: string; role: string };
-type Member = { id: string; name: string; email: string };
-type Group = { id: string; name: string; members: Member[] };
-
-type Submission = {
-  status: "PENDING" | "SUBMITTED";
-  confirmedBy?: string;
-  confirmedAt?: string;
-};
-
-type Assignment = {
-  id: string;
-  title: string;
-  description: string;
-  dueDate: string;
-  oneDriveUrl: string;
-  groupIds: string[] | "all";
-};
-
 type View = "student" | "admin";
 
-/* ---------- API helpers (groups) ---------- */
 
-const errMsg = (e: unknown, fallback: string): string =>
-  (e as any)?.response?.data?.message ?? fallback;
-
-// Backend group -> UI group. Members come back as { user: { id, name, email } }.
-const toGroup = (g: any): Group => ({
-  id: g.id,
-  name: g.name,
-  members: (g.members ?? []).map((m: any) => ({
-    id: m.user.id,
-    name: m.user.name,
-    email: m.user.email,
-  })),
-});
-
-// Backend assignment -> UI assignment. groupIds are the groups it was given to.
-const toAssignment = (a: any): Assignment => ({
-  id: a.id,
-  title: a.title,
-  description: a.description ?? "",
-  dueDate: a.dueDate,
-  oneDriveUrl: a.oneDriveUrl ?? "",
-  groupIds: (a.groups ?? []).map((g: any) => g.groupId),
-});
-
-// A Submission row for (assignment, group). No row means still pending.
-// Field names are my best guess at your Prisma model: adjust here if they differ.
-const toSubmission = (raw: any, members: Member[]): Submission => {
-  if (!raw) return { status: "PENDING" };
-
-  const status = raw.status
-    ? String(raw.status).toUpperCase() === "SUBMITTED"
-      ? "SUBMITTED"
-      : "PENDING"
-    : "SUBMITTED";
-
-  const byId = raw.confirmedById ?? raw.submittedById ?? raw.userId;
-
-  return {
-    status,
-    confirmedBy:
-      raw.confirmedBy?.name ?? members.find((m) => m.id === byId)?.name,
-    confirmedAt: raw.confirmedAt ?? raw.submittedAt ?? raw.createdAt,
-  };
-};
-
-const PENDING: Submission = { status: "PENDING" };
-
-/*
- * Student: the server already limits /assignment/all to the student's group.
- * Submission status for that group comes from /group/details/:id.
- */
 function useStudentAssignments(
   groupId: string | null,
   ready: boolean,
   user: AppUser
 ) {
   const [assignments, setAssignments] = useState<Assignment[]>([]);
-  const [submissions, setSubmissions] = useState<Record<string, Submission>>(
-    {}
-  );
+  const [submissions, setSubmissions] = useState<Record<string, Submission>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [confirmError, setConfirmError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!ready) return;
@@ -147,18 +87,30 @@ function useStudentAssignments(
   const statusOf = (assignmentId: string): Submission =>
     submissions[assignmentId] ?? PENDING;
 
-  // There is no confirm endpoint yet, so this only updates local state.
-  const confirm = (assignmentId: string) =>
-    setSubmissions((s) => ({
-      ...s,
-      [assignmentId]: {
-        status: "SUBMITTED",
-        confirmedBy: user.name,
-        confirmedAt: new Date().toISOString(),
-      },
-    }));
+  const confirm = async (assignmentId: string): Promise<boolean> => {
+    setConfirmError(null);
 
-  return { assignments, statusOf, confirm, loading, error };
+    try {
+      const { data } = await api.post("/submission/confirm", { assignmentId });
+
+      setSubmissions((s) => ({
+        ...s,
+        [assignmentId]: {
+          status: "SUBMITTED",
+          confirmedBy: user.name,
+          confirmedAt:
+            data?.data?.submission?.confirmedAt ?? new Date().toISOString(),
+        },
+      }));
+
+      return true;
+    } catch (e) {
+      setConfirmError(errMsg(e, "Could not confirm your submission"));
+      return false;
+    }
+  };
+
+  return { assignments, statusOf, confirm, confirmError, loading, error };
 }
 
 type AssignmentDetail = {
@@ -166,10 +118,7 @@ type AssignmentDetail = {
   submissions: Record<string, Submission>; // keyed by groupId
 };
 
-/*
- * Professor: /assignment/all for the list, then /assignment/:id for each one
- * to get its groups, members and submissions.
- */
+
 function useAdminData() {
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [details, setDetails] = useState<Record<string, AssignmentDetail>>({});
@@ -191,22 +140,8 @@ function useAdminData() {
         if (cancelled) return;
 
         const byId: Record<string, AssignmentDetail> = {};
-
         responses.forEach((res, i) => {
-          const raw = res.data.assignment;
-
-          const groups: Group[] = (raw.groups ?? []).map((ag: any) =>
-            toGroup(ag.group)
-          );
-
-          const submissions: Record<string, Submission> = {};
-
-          for (const sub of raw.submissions ?? []) {
-            const group = groups.find((g) => g.id === sub.groupId);
-            submissions[sub.groupId] = toSubmission(sub, group?.members ?? []);
-          }
-
-          byId[list[i].id] = { groups, submissions };
+          byId[list[i].id] = toAssignmentDetail(res.data.assignment);
         });
 
         setAssignments(list);
@@ -240,7 +175,6 @@ function useAdminData() {
   return { assignments, groups, statusOf, targetsOf, loading, error };
 }
 
-/* The logged-in student's own group, straight from the API. */
 function useMyGroup() {
   const [group, setGroup] = useState<Group | null>(null);
   const [loading, setLoading] = useState(true);
@@ -298,9 +232,7 @@ const startOfDay = (d: Date) =>
   new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
 
 const daysUntil = (iso: string) =>
-  Math.round(
-    (startOfDay(new Date(iso)) - startOfDay(new Date())) / DAY
-  );
+  Math.round((startOfDay(new Date(iso)) - startOfDay(new Date())) / DAY);
 
 const shortDate = (iso: string) =>
   new Date(iso).toLocaleDateString(undefined, {
@@ -328,13 +260,7 @@ const initials = (name: string) =>
     .join("")
     .toUpperCase();
 
-const AVATAR = [
-  "#7C3AED",
-  "#EA580C",
-  "#0F766E",
-  "#DB2777",
-  "#2563EB",
-];
+const AVATAR = ["#7C3AED", "#EA580C", "#0F766E", "#DB2777", "#2563EB"];
 
 const btnPrimary =
   "inline-flex h-10 items-center cursor-pointer justify-center gap-2 rounded-lg bg-[#2336F0] px-4 text-sm font-semibold text-white shadow-[0_2px_0_0_#1424B8] transition hover:bg-[#1A2BDB] active:translate-y-px active:shadow-none disabled:cursor-not-allowed disabled:opacity-60 focus:outline-none focus-visible:ring-4 focus-visible:ring-[#2336F0]/30";
@@ -345,8 +271,7 @@ const btnGhost =
 const inputCls =
   "h-11 w-full rounded-lg border border-[#DADDEE] bg-white px-3.5 text-[15px] text-[#0F1433] placeholder:text-[#9CA1BC] outline-none transition focus:border-[#2336F0] focus:ring-4 focus:ring-[#2336F0]/15";
 
-const panel =
-  "rounded-2xl bg-white shadow-[6px_6px_0_0_rgba(15,20,51,0.08)]";
+const panel = "rounded-2xl bg-white shadow-[6px_6px_0_0_rgba(15,20,51,0.08)]";
 
 const STYLES = `
 @import url("https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=DM+Sans:wght@400;500;600&display=swap");
@@ -357,13 +282,7 @@ const STYLES = `
 @media (prefers-reduced-motion: reduce) { .jf-pop { animation: none; } }
 `;
 
-function DateBlock({
-  iso,
-  finished,
-}: {
-  iso: string;
-  finished: boolean;
-}) {
+function DateBlock({ iso, finished }: { iso: string; finished: boolean }) {
   const d = new Date(iso);
   const n = daysUntil(iso);
 
@@ -389,19 +308,11 @@ function DateBlock({
   );
 }
 
-function Avatar({
-  name,
-  index,
-}: {
-  name: string;
-  index: number;
-}) {
+function Avatar({ name, index }: { name: string; index: number }) {
   return (
     <span
       className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold text-white"
-      style={{
-        backgroundColor: AVATAR[index % AVATAR.length],
-      }}
+      style={{ backgroundColor: AVATAR[index % AVATAR.length] }}
     >
       {initials(name)}
     </span>
@@ -432,14 +343,13 @@ function StudentView({ user }: { user: AppUser }) {
     assignments,
     statusOf,
     confirm,
+    confirmError,
     loading: assignmentsLoading,
     error: assignmentsError,
   } = useStudentAssignments(myGroup?.id ?? null, !groupLoading, user);
 
-  const [flow, setFlow] = useState<{
-    id: string;
-    step: 1 | 2;
-  } | null>(null);
+  const [flow, setFlow] = useState<{ id: string; step: 1 | 2 } | null>(null);
+  const [confirming, setConfirming] = useState(false);
 
   const [identifier, setIdentifier] = useState("");
   const [groupName, setGroupName] = useState("");
@@ -486,8 +396,7 @@ function StudentView({ user }: { user: AppUser }) {
   };
 
   const isDone = (a: Assignment) =>
-    !!myGroup &&
-    statusOf(a.id).status === "SUBMITTED";
+    !!myGroup && statusOf(a.id).status === "SUBMITTED";
 
   const sorted = useMemo(
     () =>
@@ -521,35 +430,33 @@ function StudentView({ user }: { user: AppUser }) {
             </p>
 
             {assignments.length > 0 && (
-            <div className="mt-5 max-w-md">
-              <div className="mb-2 flex justify-between text-sm">
-                <span className="font-medium">
-                  Group {myGroup.name}
-                </span>
-                <span className="text-[#5B6180]">
-                  {submittedCount} of {assignments.length} submitted
-                </span>
-              </div>
+              <div className="mt-5 max-w-md">
+                <div className="mb-2 flex justify-between text-sm">
+                  <span className="font-medium">Group {myGroup.name}</span>
+                  <span className="text-[#5B6180]">
+                    {submittedCount} of {assignments.length} submitted
+                  </span>
+                </div>
 
-              <div
-                className="flex gap-1.5"
-                role="img"
-                aria-label={`${submittedCount} of ${assignments.length} assignments submitted`}
-              >
-                {assignments.map((a) => (
-                  <div
-                    key={a.id}
-                    className={`h-2 flex-1 rounded-full transition-colors ${
-                      isDone(a)
-                        ? submittedCount === assignments.length
-                          ? "bg-[#14A36B]"
-                          : "bg-[#2336F0]"
-                        : "bg-[#E3E5F1]"
-                    }`}
-                  />
-                ))}
+                <div
+                  className="flex gap-1.5"
+                  role="img"
+                  aria-label={`${submittedCount} of ${assignments.length} assignments submitted`}
+                >
+                  {assignments.map((a) => (
+                    <div
+                      key={a.id}
+                      className={`h-2 flex-1 rounded-full transition-colors ${
+                        isDone(a)
+                          ? submittedCount === assignments.length
+                            ? "bg-[#14A36B]"
+                            : "bg-[#2336F0]"
+                          : "bg-[#E3E5F1]"
+                      }`}
+                    />
+                  ))}
+                </div>
               </div>
-            </div>
             )}
           </>
         ) : groupLoading ? null : (
@@ -566,17 +473,12 @@ function StudentView({ user }: { user: AppUser }) {
               Loading assignments…
             </div>
           ) : assignmentsError ? (
-            <div
-              role="alert"
-              className={`${panel} p-8 text-sm text-[#B42318]`}
-            >
+            <div role="alert" className={`${panel} p-8 text-sm text-[#B42318]`}>
               {assignmentsError}
             </div>
           ) : sorted.length === 0 ? (
             <div className={`${panel} p-8`}>
-              <h2 className="jf-display text-xl font-bold">
-                No assignments yet
-              </h2>
+              <h2 className="jf-display text-xl font-bold">No assignments yet</h2>
               <p className="mt-2 text-sm text-[#5B6180]">
                 {myGroup
                   ? "Your professor hasn't given your group any assignments yet. They will show up here as soon as they do."
@@ -584,152 +486,152 @@ function StudentView({ user }: { user: AppUser }) {
               </p>
             </div>
           ) : (
-          <ul className={`divide-y divide-[#E3E5F1] overflow-hidden ${panel}`}>
-            {sorted.map((a) => {
-              const sub = myGroup ? statusOf(a.id) : null;
+            <ul className={`divide-y divide-[#E3E5F1] overflow-hidden ${panel}`}>
+              {sorted.map((a) => {
+                const sub = myGroup ? statusOf(a.id) : null;
+                const active = flow?.id === a.id ? flow : null;
 
-              const active = flow?.id === a.id ? flow : null;
+                return (
+                  <li
+                    key={a.id}
+                    className="flex flex-col gap-5 p-5 sm:flex-row sm:items-center"
+                  >
+                    <DateBlock iso={a.dueDate} finished={isDone(a)} />
 
-              return (
-                <li
-                  key={a.id}
-                  className="flex flex-col gap-5 p-5 sm:flex-row sm:items-center"
-                >
-                  <DateBlock
-                    iso={a.dueDate}
-                    finished={isDone(a)}
-                  />
+                    <div className="min-w-0 flex-1">
+                      <h3 className="jf-display text-lg font-bold leading-snug">
+                        {a.title}
+                      </h3>
+                      <p className="mt-0.5 text-sm text-[#5B6180]">
+                        {dueText(a.dueDate)}
+                      </p>
+                      <p className="mt-2 line-clamp-2 text-sm text-[#5B6180]">
+                        {a.description}
+                      </p>
+                    </div>
 
-                  <div className="min-w-0 flex-1">
-                    <h3 className="jf-display text-lg font-bold leading-snug">
-                      {a.title}
-                    </h3>
-                    <p className="mt-0.5 text-sm text-[#5B6180]">
-                      {dueText(a.dueDate)}
-                    </p>
-                    <p className="mt-2 line-clamp-2 text-sm text-[#5B6180]">
-                      {a.description}
-                    </p>
-                  </div>
+                    <div className="sm:w-60">
+                      {sub?.status === "SUBMITTED" ? (
+                        <div className="flex items-center justify-between gap-3 sm:flex-col sm:items-end">
+                          <div className="sm:text-right">
+                            <SubmittedMark>Submitted</SubmittedMark>
+                            <p className="mt-1 text-xs text-[#5B6180]">
+                              Confirmed by {sub.confirmedBy}
+                              {sub.confirmedAt
+                                ? `, ${shortDate(sub.confirmedAt)}`
+                                : ""}
+                            </p>
+                          </div>
 
-                  <div className="sm:w-60">
-                    {sub?.status === "SUBMITTED" ? (
-                      <div className="flex items-center justify-between gap-3 sm:flex-col sm:items-end">
-                        <div className="sm:text-right">
-                          <SubmittedMark>Submitted</SubmittedMark>
-                          <p className="mt-1 text-xs text-[#5B6180]">
-                            Confirmed by {sub.confirmedBy}
-                            {sub.confirmedAt
-                              ? `, ${shortDate(sub.confirmedAt)}`
-                              : ""}
+                          <a
+                            href={a.oneDriveUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-1.5 text-sm text-[#5B6180] hover:text-[#2336F0]"
+                          >
+                            OneDrive link <ExternalLink size={14} />
+                          </a>
+                        </div>
+                      ) : !myGroup ? (
+                        <div className="flex items-center gap-3 sm:flex-col sm:items-end">
+                          <a
+                            href={a.oneDriveUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className={btnGhost}
+                          >
+                            OneDrive <ExternalLink size={14} />
+                          </a>
+                          <span className="text-xs text-[#5B6180]">
+                            Create a group to confirm
+                          </span>
+                        </div>
+                      ) : !active ? (
+                        <div className="flex gap-2 sm:justify-end">
+                          <a
+                            href={a.oneDriveUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className={btnGhost}
+                          >
+                            OneDrive <ExternalLink size={14} />
+                          </a>
+
+                          <button
+                            type="button"
+                            className={btnPrimary}
+                            onClick={() => setFlow({ id: a.id, step: 1 })}
+                          >
+                            Mark submitted
+                          </button>
+                        </div>
+                      ) : active.step === 1 ? (
+                        <div className="rounded-xl bg-[#F1F3FF] p-3">
+                          <p className="text-sm font-medium">
+                            Did you upload your work to OneDrive?
                           </p>
+
+                          <div className="mt-3 flex gap-2">
+                            <button
+                              type="button"
+                              className={`${btnPrimary} h-9 px-3`}
+                              onClick={() => setFlow({ id: a.id, step: 2 })}
+                            >
+                              Yes, I have submitted
+                            </button>
+
+                            <button
+                              type="button"
+                              className={`${btnGhost} h-9 px-3`}
+                              onClick={() => setFlow(null)}
+                            >
+                              Not yet
+                            </button>
+                          </div>
                         </div>
+                      ) : (
+                        <div className="rounded-xl bg-[#FFF8D6] p-3">
+                          <p className="text-sm font-medium">
+                            Confirm for group {myGroup.name}? You can't undo this.
+                          </p>
 
-                        <a
-                          href={a.oneDriveUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="inline-flex items-center gap-1.5 text-sm text-[#5B6180] hover:text-[#2336F0]"
-                        >
-                          OneDrive link <ExternalLink size={14} />
-                        </a>
-                      </div>
-                    ) : !myGroup ? (
-                      <div className="flex items-center gap-3 sm:flex-col sm:items-end">
-                        <a
-                          href={a.oneDriveUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className={btnGhost}
-                        >
-                          OneDrive <ExternalLink size={14} />
-                        </a>
-                        <span className="text-xs text-[#5B6180]">
-                          Create a group to confirm
-                        </span>
-                      </div>
-                    ) : !active ? (
-                      <div className="flex gap-2 sm:justify-end">
-                        <a
-                          href={a.oneDriveUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className={btnGhost}
-                        >
-                          OneDrive <ExternalLink size={14} />
-                        </a>
+                          <div className="mt-3 flex gap-2">
+                            <button
+                              type="button"
+                              className={`${btnPrimary} h-9 px-3`}
+                              disabled={confirming}
+                              onClick={async () => {
+                                setConfirming(true);
+                                const ok = await confirm(a.id);
+                                setConfirming(false);
+                                if (ok) setFlow(null);
+                              }}
+                            >
+                              {confirming ? "Confirming..." : "Confirm submission"}
+                            </button>
 
-                        <button
-                          type="button"
-                          className={btnPrimary}
-                          onClick={() =>
-                            setFlow({ id: a.id, step: 1 })
-                          }
-                        >
-                          Mark submitted
-                        </button>
-                      </div>
-                    ) : active.step === 1 ? (
-                      <div className="rounded-xl bg-[#F1F3FF] p-3">
-                        <p className="text-sm font-medium">
-                          Did you upload your work to OneDrive?
-                        </p>
+                            <button
+                              type="button"
+                              className={`${btnGhost} h-9 px-3`}
+                              disabled={confirming}
+                              onClick={() => setFlow({ id: a.id, step: 1 })}
+                            >
+                              Back
+                            </button>
+                          </div>
 
-                        <div className="mt-3 flex gap-2">
-                          <button
-                            type="button"
-                            className={`${btnPrimary} h-9 px-3`}
-                            onClick={() =>
-                              setFlow({ id: a.id, step: 2 })
-                            }
-                          >
-                            Yes, I have submitted
-                          </button>
-
-                          <button
-                            type="button"
-                            className={`${btnGhost} h-9 px-3`}
-                            onClick={() => setFlow(null)}
-                          >
-                            Not yet
-                          </button>
+                          {confirmError && (
+                            <p role="alert" className="mt-2 text-xs text-[#B42318]">
+                              {confirmError}
+                            </p>
+                          )}
                         </div>
-                      </div>
-                    ) : (
-                      <div className="rounded-xl bg-[#FFF8D6] p-3">
-                        <p className="text-sm font-medium">
-                          Confirm for group {myGroup.name}? You can't undo this.
-                        </p>
-
-                        <div className="mt-3 flex gap-2">
-                          <button
-                            type="button"
-                            className={`${btnPrimary} h-9 px-3`}
-                            onClick={() => {
-                              confirm(a.id);
-                              setFlow(null);
-                            }}
-                          >
-                            Confirm submission
-                          </button>
-
-                          <button
-                            type="button"
-                            className={`${btnGhost} h-9 px-3`}
-                            onClick={() =>
-                              setFlow({ id: a.id, step: 1 })
-                            }
-                          >
-                            Back
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
           )}
         </section>
 
@@ -775,12 +677,8 @@ function StudentView({ user }: { user: AppUser }) {
                   <li key={m.id} className="flex items-center gap-3">
                     <Avatar name={m.name} index={i} />
                     <div className="min-w-0">
-                      <p className="truncate text-sm font-medium">
-                        {m.name}
-                      </p>
-                      <p className="truncate text-xs text-[#5B6180]">
-                        {m.email}
-                      </p>
+                      <p className="truncate text-sm font-medium">{m.name}</p>
+                      <p className="truncate text-xs text-[#5B6180]">{m.email}</p>
                     </div>
                   </li>
                 ))}
@@ -790,10 +688,7 @@ function StudentView({ user }: { user: AppUser }) {
                 onSubmit={handleAddMember}
                 className="mt-6 border-t border-[#E3E5F1] pt-5"
               >
-                <label
-                  htmlFor="member"
-                  className="mb-2 block text-sm font-medium"
-                >
+                <label htmlFor="member" className="mb-2 block text-sm font-medium">
                   Add a member
                 </label>
 
@@ -824,20 +719,13 @@ function StudentView({ user }: { user: AppUser }) {
               </form>
             </>
           ) : (
-            <form
-              onSubmit={handleCreate}
-            >
-              <h2 className="jf-display text-xl font-bold">
-                Create your group
-              </h2>
+            <form onSubmit={handleCreate}>
+              <h2 className="jf-display text-xl font-bold">Create your group</h2>
               <p className="mt-1 text-sm text-[#5B6180]">
                 Name it now, then add classmates by email or student ID.
               </p>
 
-              <label
-                htmlFor="gname"
-                className="mb-2 mt-5 block text-sm font-medium"
-              >
+              <label htmlFor="gname" className="mb-2 mt-5 block text-sm font-medium">
                 Group name
               </label>
 
@@ -882,43 +770,23 @@ function AdminView({ user }: { user: AppUser }) {
       (g) => statusOf(a.id, g.id).status === "SUBMITTED"
     ).length;
 
-    return {
-      a,
-      targets,
-      submitted,
-      total: targets.length,
-    };
+    return { a, targets, submitted, total: targets.length };
   });
 
-  const submittedAll = rows.reduce(
-    (n, r) => n + r.submitted,
-    0
-  );
-
-  const totalAll = rows.reduce(
-    (n, r) => n + r.total,
-    0
-  );
-
-  const pctAll = totalAll
-    ? Math.round((submittedAll / totalAll) * 100)
-    : 0;
+  const submittedAll = rows.reduce((n, r) => n + r.submitted, 0);
+  const totalAll = rows.reduce((n, r) => n + r.total, 0);
+  const pctAll = totalAll ? Math.round((submittedAll / totalAll) * 100) : 0;
 
   const behind = groups
     .map((g) => {
-      const mine = rows.filter((r) =>
-        r.targets.some((t) => t.id === g.id)
-      );
-
+      const mine = rows.filter((r) => r.targets.some((t) => t.id === g.id));
       const ok = mine.filter(
         (r) => statusOf(r.a.id, g.id).status === "SUBMITTED"
       ).length;
 
       return {
         name: g.name,
-        pct: mine.length
-          ? Math.round((ok / mine.length) * 100)
-          : 100,
+        pct: mine.length ? Math.round((ok / mine.length) * 100) : 100,
       };
     })
     .sort((x, y) => x.pct - y.pct)
@@ -931,16 +799,14 @@ function AdminView({ user }: { user: AppUser }) {
     <>
       <div className="mb-10 flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="jf-display text-4xl font-bold">
-            Assignments
-          </h1>
+          <h1 className="jf-display text-4xl font-bold">Assignments</h1>
 
           <p className="mt-2 text-[15px] text-[#5B6180]">
             {loading
               ? "Loading assignments…"
               : assignments.length === 0
-              ? `Welcome, ${user.name.split(" ")[0]}. Create your first assignment to get started.`
-              : `${submittedAll} of ${totalAll} group submissions are in across ${assignments.length} ${assignments.length === 1 ? "assignment" : "assignments"}.`}
+                ? `Welcome, ${user.name.split(" ")[0]}. Create your first assignment to get started.`
+                : `${submittedAll} of ${totalAll} group submissions are in across ${assignments.length} ${assignments.length === 1 ? "assignment" : "assignments"}.`}
           </p>
         </div>
 
@@ -960,189 +826,178 @@ function AdminView({ user }: { user: AppUser }) {
               Loading assignments…
             </div>
           ) : error ? (
-            <div
-              role="alert"
-              className={`${panel} p-8 text-sm text-[#B42318]`}
-            >
+            <div role="alert" className={`${panel} p-8 text-sm text-[#B42318]`}>
               {error}
             </div>
           ) : rows.length === 0 ? (
             <div className={`${panel} p-8`}>
-              <h2 className="jf-display text-xl font-bold">
-                No assignments yet
-              </h2>
+              <h2 className="jf-display text-xl font-bold">No assignments yet</h2>
               <p className="mt-2 text-sm text-[#5B6180]">
                 Use "New assignment" to create one and choose which groups
                 receive it.
               </p>
             </div>
           ) : (
-          <ul className={`divide-y divide-[#E3E5F1] overflow-hidden ${panel}`}>
-            {rows.map(({ a, targets, submitted, total }) => {
-              const pct = total
-                ? Math.round((submitted / total) * 100)
-                : 0;
+            <ul className={`divide-y divide-[#E3E5F1] overflow-hidden ${panel}`}>
+              {rows.map(({ a, targets, submitted, total }) => {
+                const pct = total ? Math.round((submitted / total) * 100) : 0;
+                const isOpen = open === a.id;
 
-              const isOpen = open === a.id;
-
-              return (
-                <li key={a.id}>
-                  <div className="flex items-center gap-4 p-5">
-                    <DateBlock
-                      iso={a.dueDate}
-                      finished={total > 0 && submitted === total}
-                    />
-
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setOpen(isOpen ? null : a.id)
-                      }
-                      aria-expanded={isOpen}
-                      className="flex min-w-0 flex-1 items-center gap-3 rounded-md text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[#2336F0]"
-                    >
-                      <span className="min-w-0 flex-1">
-                        <span className="jf-display block text-lg font-bold leading-snug">
-                          {a.title}
-                        </span>
-
-                        <span className="block text-sm text-[#5B6180]">
-                          {dueText(a.dueDate)}
-                        </span>
-
-                        <span className="mt-3 flex items-center gap-3">
-                          <span className="block h-2 w-40 overflow-hidden rounded-full bg-[#E3E5F1]">
-                            <span
-                              className={`block h-full rounded-full transition-[width] duration-500 ${
-                                pct === 100
-                                  ? "bg-[#14A36B]"
-                                  : "bg-[#2336F0]"
-                              }`}
-                              style={{ width: `${pct}%` }}
-                            />
-                          </span>
-
-                          <span className="text-xs text-[#5B6180]">
-                            {submitted} of {total} groups
-                          </span>
-                        </span>
-                      </span>
-
-                      <ChevronDown
-                        size={18}
-                        className={`shrink-0 text-[#5B6180] cursor-pointer transition-transform ${
-                          isOpen ? "rotate-180" : ""
-                        }`}
+                return (
+                  <li key={a.id}>
+                    <div className="flex items-center gap-4 p-5">
+                      <DateBlock
+                        iso={a.dueDate}
+                        finished={total > 0 && submitted === total}
                       />
-                    </button>
 
-                    <button
-                      type="button"
-                      onClick={() =>
-                        navigate(`/assignments/${a.id}/edit`)
-                      }
-                      aria-label={`Edit ${a.title}`}
-                      className="rounded-lg border border-[#DADDEE] cursor-pointer p-2.5 text-[#5B6180] transition hover:border-[#2336F0] hover:text-[#2336F0] focus:outline-none focus-visible:ring-4 focus-visible:ring-[#2336F0]/20"
-                    >
-                      <Pencil size={16} />
-                    </button>
-                  </div>
+                      <button
+                        type="button"
+                        onClick={() => setOpen(isOpen ? null : a.id)}
+                        aria-expanded={isOpen}
+                        className="flex min-w-0 flex-1 items-center gap-3 rounded-md text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[#2336F0]"
+                      >
+                        <span className="min-w-0 flex-1">
+                          <span className="jf-display block text-lg font-bold leading-snug">
+                            {a.title}
+                          </span>
 
-                  {isOpen && (
-                    <div className="border-t border-[#E3E5F1] bg-[#FAFBFE] p-5">
-                      <div className="mb-4 flex flex-wrap items-center justify-between gap-2 text-sm text-[#5B6180]">
-                        <span>
-                          Assigned to {targets.length}{" "}
-                          {targets.length === 1 ? "group" : "groups"}
+                          <span className="block text-sm text-[#5B6180]">
+                            {dueText(a.dueDate)}
+                          </span>
+
+                          <span className="mt-3 flex items-center gap-3">
+                            <span className="block h-2 w-40 overflow-hidden rounded-full bg-[#E3E5F1]">
+                              <span
+                                className={`block h-full rounded-full transition-[width] duration-500 ${
+                                  pct === 100 ? "bg-[#14A36B]" : "bg-[#2336F0]"
+                                }`}
+                                style={{ width: `${pct}%` }}
+                              />
+                            </span>
+
+                            <span className="text-xs text-[#5B6180]">
+                              {submitted} of {total} groups
+                            </span>
+                          </span>
                         </span>
 
-                        <a
-                          href={a.oneDriveUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="inline-flex items-center gap-1.5 hover:text-[#2336F0]"
-                        >
-                          OneDrive link <ExternalLink size={14} />
-                        </a>
-                      </div>
+                        <ChevronDown
+                          size={18}
+                          className={`shrink-0 cursor-pointer text-[#5B6180] transition-transform ${
+                            isOpen ? "rotate-180" : ""
+                          }`}
+                        />
+                      </button>
 
-                      <div className="grid gap-5 sm:grid-cols-2">
-                        {targets.map((g) => {
-                          const sub = statusOf(a.id, g.id);
-                          const ok = sub.status === "SUBMITTED";
+                      <button
+                        type="button"
+                        onClick={() => navigate(`/assignments/${a.id}/edit`)}
+                        aria-label={`Edit ${a.title}`}
+                        className="cursor-pointer rounded-lg border border-[#DADDEE] p-2.5 text-[#5B6180] transition hover:border-[#2336F0] hover:text-[#2336F0] focus:outline-none focus-visible:ring-4 focus-visible:ring-[#2336F0]/20"
+                      >
+                        <Pencil size={16} />
+                      </button>
+                    </div>
 
-                          return (
-                            <div key={g.id}>
-                              <div className="mb-2 flex items-center justify-between text-sm">
-                                <span className="font-semibold">
-                                  {g.name}
-                                </span>
+                    {isOpen && (
+                      <div className="border-t border-[#E3E5F1] bg-[#FAFBFE] p-5">
+                        <div className="mb-4 flex flex-wrap items-center justify-between gap-2 text-sm text-[#5B6180]">
+                          <span>
+                            Assigned to {targets.length}{" "}
+                            {targets.length === 1 ? "group" : "groups"}
+                          </span>
 
-                                <span
-                                  className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                                    ok
-                                      ? "bg-[#E6F6EF] text-[#0E7A50]"
-                                      : "bg-[#EDEFFB] text-[#5B6180]"
-                                  }`}
-                                >
-                                  {ok ? "Submitted" : "Pending"}
-                                </span>
-                              </div>
+                          {a.oneDriveUrl && (
+                            <a
+                              href={a.oneDriveUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center gap-1.5 hover:text-[#2336F0]"
+                            >
+                              OneDrive link <ExternalLink size={14} />
+                            </a>
+                          )}
+                        </div>
 
-                              <div className="flex flex-wrap gap-1.5">
-                                {g.members.map((m) => {
-                                  const confirmer =
-                                    ok && m.name === sub.confirmedBy;
+                        {targets.length === 0 ? (
+                          <p className="text-sm text-[#5B6180]">
+                            This assignment hasn't been given to any group yet.
+                          </p>
+                        ) : (
+                          <div className="grid gap-5 sm:grid-cols-2">
+                            {targets.map((g) => {
+                              const sub = statusOf(a.id, g.id);
+                              const ok = sub.status === "SUBMITTED";
 
-                                  return (
+                              return (
+                                <div key={g.id}>
+                                  <div className="mb-2 flex items-center justify-between text-sm">
+                                    <span className="font-semibold">{g.name}</span>
+
                                     <span
-                                      key={m.id}
-                                      className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium ${
-                                        confirmer
-                                          ? "bg-[#14A36B] text-white"
+                                      className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                                        ok
+                                          ? "bg-[#E6F6EF] text-[#0E7A50]"
                                           : "bg-[#EDEFFB] text-[#5B6180]"
                                       }`}
                                     >
-                                      {confirmer && (
-                                        <Check
-                                          size={12}
-                                          strokeWidth={3}
-                                        />
-                                      )}
-                                      {m.name}
+                                      {ok ? "Submitted" : "Pending"}
                                     </span>
-                                  );
-                                })}
-                              </div>
+                                  </div>
 
-                              {ok && (
-                                <p className="mt-2 text-xs text-[#5B6180]">
-                                  Confirmed by {sub.confirmedBy}
-                                  {sub.confirmedAt
-                                    ? `, ${shortDate(sub.confirmedAt)}`
-                                    : ""}
-                                </p>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
+                                  <div className="flex flex-wrap gap-1.5">
+                                    {g.members.map((m) => {
+                                      const confirmer =
+                                        ok && m.name === sub.confirmedBy;
 
-                      <div className="mt-5 flex justify-end border-t border-[#E3E5F1] pt-4">
-                        <Link
-                          to={`/submissions?assignmentId=${a.id}`}
-                          className="inline-flex items-center gap-2 text-sm font-semibold text-[#2336F0] transition hover:text-[#1A2BDB]"
-                        >
-                          More details
-                          <ChevronRight size={16} />
-                        </Link>
+                                      return (
+                                        <span
+                                          key={m.id}
+                                          className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium ${
+                                            confirmer
+                                              ? "bg-[#14A36B] text-white"
+                                              : "bg-[#EDEFFB] text-[#5B6180]"
+                                          }`}
+                                        >
+                                          {confirmer && (
+                                            <Check size={12} strokeWidth={3} />
+                                          )}
+                                          {m.name}
+                                        </span>
+                                      );
+                                    })}
+                                  </div>
+
+                                  {ok && (
+                                    <p className="mt-2 text-xs text-[#5B6180]">
+                                      Confirmed by {sub.confirmedBy}
+                                      {sub.confirmedAt
+                                        ? `, ${shortDate(sub.confirmedAt)}`
+                                        : ""}
+                                    </p>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+
+                        <div className="mt-5 flex justify-end border-t border-[#E3E5F1] pt-4">
+                          <Link
+                            to={`/submissions?assignmentId=${a.id}`}
+                            className="inline-flex items-center gap-2 text-sm font-semibold text-[#2336F0] transition hover:text-[#1A2BDB]"
+                          >
+                            More details
+                            <ChevronRight size={16} />
+                          </Link>
+                        </div>
                       </div>
-                    </div>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
           )}
         </section>
 
@@ -1150,9 +1005,7 @@ function AdminView({ user }: { user: AppUser }) {
           aria-label="Analytics"
           className={`h-fit p-6 lg:sticky lg:top-24 ${panel}`}
         >
-          <p className="text-sm text-[#5B6180]">
-            Overall completion
-          </p>
+          <p className="text-sm text-[#5B6180]">Overall completion</p>
 
           <div className="relative mx-auto mt-4 h-36 w-36">
             <svg
@@ -1185,48 +1038,39 @@ function AdminView({ user }: { user: AppUser }) {
             </svg>
 
             <div className="absolute inset-0 flex flex-col items-center justify-center">
-              <span className="jf-display text-3xl font-bold">
-                {pctAll}%
-              </span>
-              <span className="text-xs text-[#5B6180]">
-                submitted
-              </span>
+              <span className="jf-display text-3xl font-bold">{pctAll}%</span>
+              <span className="text-xs text-[#5B6180]">submitted</span>
             </div>
           </div>
 
           {behind.length > 0 && (
-          <div className="mt-7 border-t border-[#E3E5F1] pt-5">
-            <p className="text-sm font-semibold">
-              Groups furthest behind
-            </p>
+            <div className="mt-7 border-t border-[#E3E5F1] pt-5">
+              <p className="text-sm font-semibold">Groups furthest behind</p>
 
-            <ul className="mt-4 space-y-4">
-              {behind.map((g) => (
-                <li key={g.name}>
-                  <div className="flex justify-between text-sm">
-                    <span>{g.name}</span>
-                    <span className="text-[#5B6180]">
-                      {g.pct}%
-                    </span>
-                  </div>
+              <ul className="mt-4 space-y-4">
+                {behind.map((g) => (
+                  <li key={g.name}>
+                    <div className="flex justify-between text-sm">
+                      <span>{g.name}</span>
+                      <span className="text-[#5B6180]">{g.pct}%</span>
+                    </div>
 
-                  <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-[#E3E5F1]">
-                    <div
-                      className="h-full rounded-full bg-[#2336F0]"
-                      style={{ width: `${g.pct}%` }}
-                    />
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </div>
+                    <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-[#E3E5F1]">
+                      <div
+                        className="h-full rounded-full bg-[#2336F0]"
+                        style={{ width: `${g.pct}%` }}
+                      />
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
           )}
         </aside>
       </div>
     </>
   );
 }
-
 
 export default function Dashboard() {
   const { user } = useAuth();
@@ -1239,11 +1083,7 @@ export default function Dashboard() {
   };
 
   const role = String(me.role).toLowerCase();
-
-  const view: View =
-    role === "admin" || role === "professor"
-      ? "admin"
-      : "student";
+  const view: View = role === "admin" || role === "professor" ? "admin" : "student";
 
   return (
     <div className="jf-root min-h-screen bg-[#F6F7FB] text-[#0F1433]">
@@ -1251,11 +1091,7 @@ export default function Dashboard() {
       <Navbar />
 
       <main className="mx-auto max-w-6xl px-6 py-10">
-        {view === "admin" ? (
-          <AdminView user={me} />
-        ) : (
-          <StudentView user={me} />
-        )}
+        {view === "admin" ? <AdminView user={me} /> : <StudentView user={me} />}
       </main>
     </div>
   );
