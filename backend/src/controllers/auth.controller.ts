@@ -4,7 +4,9 @@ import { prisma } from "../config/database";
 import { comparePassword, hashPassword } from "../utils/password";
 import { generateAccessToken } from "../utils/jwt";
 import { handlePrismaError } from "../utils/handleDBError";
+import config from "../config";
 
+const isProd = config.nodeEnviorment === "production";
 
 const login = async(request: Request, response:Response) => {
     try {
@@ -46,8 +48,8 @@ const login = async(request: Request, response:Response) => {
         
         response.cookie("accessToken", token, {
             httpOnly: true,
-            secure: process.env.NODE_ENV === "production",
-            sameSite: "lax",
+            secure: isProd,
+            sameSite:  (isProd ? "none" : "lax") as "none" | "lax",
             maxAge: 24 * 60 * 60 * 1000, 
             path: "/",
         });
@@ -104,8 +106,8 @@ const signUp = async(request: Request, response:Response) => {
         const token = generateAccessToken(user.id, user.tokenVersion);
         response.cookie("accessToken", token, {
             httpOnly: true,
-            secure: process.env.NODE_ENV === "production",
-            sameSite: "lax",
+            secure: isProd, 
+            sameSite:  (isProd ? "none" : "lax") as "none" | "lax",
             maxAge: 24 * 60 * 60 * 1000, 
             path: "/",
         });
@@ -135,8 +137,8 @@ const signOut = async(request: Request, response:Response) => {
 
     response.clearCookie("accessToken", {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
+      secure: isProd,
+      sameSite:  (isProd ? "none" : "lax") as "none" | "lax",
       path: "/",
     });
 
