@@ -6,9 +6,9 @@ Built for the Joineazy Full Stack Intern task.
 
 | | Link |
 |---|---|
-| GitHub | `<repo link>` |
+| GitHub | [`<repo link>`](https://github.com/Harxhit/joinflow) |
 | Demo video | `<demo video link>` |
-| Live platform | `<platform link>` |
+| Live platform | [`<platform link>`](https://joinflow-1.onrender.com) |
 
 ## Overview
 
@@ -294,4 +294,30 @@ Example response, `GET /api/analytic/overview`:
 
 ## Deployment
 
-> Not deployed yet. This section will list the frontend, backend and database hosts, plus the environment variables each one needs.
+| Part | Host | URL |
+|---|---|---|
+| Frontend | Render Web Service | https://joinflow-1.onrender.com |
+| Backend API | Render Web Service | https://joinflow-ouov.onrender.com/api |
+| Database | PostgreSQL on Supabase | managed |
+
+Both services run on Render's free plan, so the first request after a period of inactivity can take about 30 seconds while the service wakes up.
+
+### Backend (Render)
+
+- Root directory: `backend`
+- Build command: `npm install --include=dev && npx prisma generate`
+- Pre-deploy command: `npx prisma migrate deploy`
+- Start command: `npm start`
+
+### Frontend (Render)
+
+- Root directory: `frontend`
+- Build command: `npm install && npm run build`
+- Start command: `npm run preview -- --host 0.0.0.0 --port $PORT`
+### Deployment notes
+
+- The frontend and backend run on different domains, so the auth cookie is set with `SameSite=None` and `Secure` in production, and the backend trusts Render's proxy and allows credentialed requests from the frontend origin only.
+- `VITE_API_URL` is read at build time, so changing it needs a redeploy of the frontend.
+- The backend runs TypeScript directly with `tsx`, so there is no separate compile step.
+
+| Live platform | https://joinflow-1.onrender.com |
