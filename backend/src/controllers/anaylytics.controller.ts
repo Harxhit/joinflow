@@ -183,4 +183,116 @@ const getStudentAnalytics = async (request: Request, response: Response) => {
   }
 };
 
-export { getGroupAnalytics, getAnalyticsOverview, getStudentAnalytics };
+const getGroupProgress = async (request: Request, response: Response) => {
+  try {
+    const { groupId } = request.params;
+    if(typeof groupId !== 'string'){
+      return response.status(400).json({
+        success: false,
+        message: "Invalid group ID. Group ID must be a single string.",
+      });
+    }
+    const group = await prisma.group.findUnique({
+      where: { id: groupId },
+      include: {
+        members: {
+          include: { user: { select: { id: true, name: true, email: true } } },
+        },
+        assignments: {
+          include: {
+            assignment: {
+              select: {
+                id: true,
+                title: true,
+                dueDate: true,
+                submissions: {
+                  where: { groupId, status: "SUBMITTED" },
+                  select: { confirmedAt: true, confirmedById: true },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!group) {
+      return response
+        .status(404)
+        .json({ success: false, message: "Group not found" });
+    }
+
+    const isAdmin = request.user.role === "ADMIN";
+    const isMember = group.members.some((m) => m.userId === request.user.id);
+
+    if (!isAdmin && !isMember) {
+      return response
+        .status(403)
+        .json({ success: false, message: "You are not part of this group" });
+    }
+
+    const nameById = new Map(group.members.map((m) => [m.user.id, m.user.name]));
+    const now = Date.now();
+
+    const assignments = group.assignments
+      .map(({ assignment }) => {
+        const sub = assignment.submissions[0];
+        const submitted = !!sub;
+
+        return {
+          assignmentId: assignment.id,
+          title: assignment.title,
+          dueDate: assignment.dueDate,
+          status: submitted ? "SUBMITTED" : "PENDING",
+          overdue: !submitted && new Date(assignment.dueDate).getTime() < now,
+          confirmedAt: sub?.confirmedAt ?? null,
+          confirmedById: sub?.confirmedById ?? null,
+          confirmedBy: sub?.confirmedById
+            ? nameById.get(sub.confirmedById) ?? null
+            : null,
+        };
+      })
+      .sort(
+        (a, b) => +new Date(a.dueDate) - +new Date(b.dueDate)
+      );
+
+    const total = assignments.length;
+    const submitted = assignments.filter((a) => a.status === "SUBMITTED").length;
+    const overdue = assignments.filter((a) => a.overdue).length;
+
+    const members = group.members.map(({ user }) => {
+      const confirmed = assignments.filter(
+        (a) => a.confirmedById === user.id
+      ).length;
+
+      return {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        confirmedCount: confirmed,
+        shareOfSubmitted: rate(confirmed, submitted),
+      };
+    });
+
+    return response.status(200).json({
+      success: true,
+      message: "Group progress fetched successfully",
+      data: {
+        group: { id: group.id, name: group.name, totalMembers: members.length },
+        summary: {
+          total,
+          submitted,
+          pending: total - submitted,
+          overdue,
+          completionRate: rate(submitted, total),
+        },
+        assignments,
+        members,
+      },
+    });
+  } catch (error) {
+    handlePrismaError(error, response);
+  }
+};
+
+export { getGroupAnalytics, getAnalyticsOverview, getStudentAnalytics , getGroupProgress};

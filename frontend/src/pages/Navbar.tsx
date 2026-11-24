@@ -12,11 +12,25 @@ const initials = (name: string) =>
     .join("")
     .toUpperCase();
 
+const navLinkClass = ({ isActive }: { isActive: boolean }) =>
+  `rounded-lg px-3 py-1.5 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#2336F0] ${
+    isActive
+      ? "bg-[#EDEFFB] text-[#2336F0]"
+      : "text-[#5B6180] hover:text-[#0F1433]"
+  }`;
+
 export default function Navbar() {
   const { user, loading, logout } = useAuth();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  const isStudent = String(user?.role ?? "").toLowerCase() === "student";
+
+  const links = [
+    { to: "/dashboard", label: "Dashboard", show: true },
+    { to: "/analytics", label: "Analytics", show: !isStudent },
+  ].filter((l) => l.show);
 
   useEffect(() => {
     if (!open) return;
@@ -43,8 +57,8 @@ export default function Navbar() {
   return (
     <header className="sticky top-0 z-40 border-b border-[#E3E5F1] bg-[#F6F7FB]/85 backdrop-blur">
       <nav className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
-        <div className="flex items-center gap-8">
-          <Link to={ "/dashboard"} className="flex items-center gap-3">
+        <div className="flex items-center gap-6">
+          <Link to="/dashboard" className="flex items-center gap-3">
             <span className="relative block h-9 w-9">
               <span className="absolute left-1 top-1 h-full w-full rounded-lg bg-[#FFE14D]" />
               <span className="relative flex h-full w-full items-center justify-center rounded-lg bg-[#2336F0] text-white">
@@ -55,16 +69,13 @@ export default function Navbar() {
           </Link>
 
           {user && (
-            <NavLink
-              to="/dashboard"
-              className={({ isActive }) =>
-                `rounded-md px-1 py-1 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#2336F0] ${
-                  isActive ? "text-[#2336F0]" : "text-[#5B6180] hover:text-[#0F1433]"
-                }`
-              }
-            >
-              Dashboard
-            </NavLink>
+            <div className="flex items-center gap-1">
+              {links.map((l) => (
+                <NavLink key={l.to} to={l.to} className={navLinkClass}>
+                  {l.label}
+                </NavLink>
+              ))}
+            </div>
           )}
         </div>
 
