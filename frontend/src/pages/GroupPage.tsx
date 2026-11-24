@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -10,6 +11,8 @@ import {
   Users,
 } from "lucide-react";
 import Navbar from "./Navbar";
+import { useAuth } from "../context/AuthContext";
+import api from "../services/api";
 
 type Member = {
   id: string;
@@ -32,108 +35,95 @@ type Submission = {
   confirmedAt?: string;
 };
 
-const MOCK_GROUP = {
-  id: "g1",
-  name: "Orbit",
-  members: [
-    {
-      id: "m1",
-      name: "Harshit Parihar",
-      email: "harshit@example.com",
-    },
-    {
-      id: "m2",
-      name: "Aarav Mehta",
-      email: "aarav@college.edu",
-    },
-    {
-      id: "m3",
-      name: "Meera Iyer",
-      email: "meera@college.edu",
-    },
-    {
-      id: "m4",
-      name: "Kabir Shah",
-      email: "kabir@college.edu",
-    },
-  ] as Member[],
+type Group = {
+  id: string;
+  name: string;
+  members: Member[];
 };
 
-const MOCK_ASSIGNMENTS: Assignment[] = [
-  {
-    id: "a1",
-    title: "Lab 4: Process scheduling",
-    description:
-      "Implement round robin and MLFQ, then compare average waiting time.",
-    dueDate: "2026-11-25",
-    oneDriveUrl: "https://onedrive.live.com/",
-  },
-  {
-    id: "a2",
-    title: "ER diagram and schema",
-    description:
-      "Model the library system and submit the diagram with your SQL.",
-    dueDate: "2026-11-28",
-    oneDriveUrl: "https://onedrive.live.com/",
-  },
-  {
-    id: "a3",
-    title: "Computer Networks Assignment",
-    description:
-      "Analyze TCP congestion control mechanisms and prepare a report.",
-    dueDate: "2026-11-30",
-    oneDriveUrl: "https://onedrive.live.com/",
-  },
-  {
-    id: "a4",
-    title: "Software Engineering Report",
-    description:
-      "Prepare project documentation, requirements and system design.",
-    dueDate: "2026-12-04",
-    oneDriveUrl: "https://onedrive.live.com/",
-  },
-  {
-    id: "a5",
-    title: "Data Structures Assignment",
-    description:
-      "Implement graph traversal and shortest path algorithms.",
-    dueDate: "2026-12-08",
-    oneDriveUrl: "https://onedrive.live.com/",
-  },
-];
+const errMsg = (e: unknown, fallback: string): string =>
+  (e as any)?.response?.data?.message ?? fallback;
 
-const MOCK_SUBMISSIONS: Submission[] = [
-  {
-    assignmentId: "a1",
-    status: "SUBMITTED",
-    confirmedBy: "Harshit Parihar",
-    confirmedAt: "2026-11-22T10:30:00",
-  },
-  {
-    assignmentId: "a2",
-    status: "SUBMITTED",
-    confirmedBy: "Meera Iyer",
-    confirmedAt: "2026-11-23T09:15:00",
-  },
-  {
-    assignmentId: "a3",
-    status: "PENDING",
-  },
-  {
-    assignmentId: "a4",
-    status: "PENDING",
-  },
-  {
-    assignmentId: "a5",
-    status: "PENDING",
-  },
-];
+// Backend group -> UI group. Members come back as { user: { id, name, email } }.
+const toGroup = (g: any): Group => ({
+  id: g.id,
+  name: g.name,
+  members: (g.members ?? []).map((m: any) => ({
+    id: m.user.id,
+    name: m.user.name,
+    email: m.user.email,
+  })),
+});
+
+const toAssignment = (a: any): Assignment => ({
+  id: a.id,
+  title: a.title,
+  description: a.description ?? "",
+  dueDate: a.dueDate,
+  oneDriveUrl: a.oneDriveUrl ?? a.oneDriveLink ?? a.link ?? "",
+});
+
+// A Submission row for (assignment, group). No row means still pending.
+// Field names are my best guess at your Prisma model: adjust here if they differ.
+const toSubmission = (
+  raw: any,
+  assignmentId: string,
+  members: Member[]
+): Submission => {
+  if (!raw) return { assignmentId, status: "PENDING" };
+
+  const status = raw.status
+    ? String(raw.status).toUpperCase() === "SUBMITTED"
+      ? "SUBMITTED"
+      : "PENDING"
+    : "SUBMITTED";
+
+  const byId = raw.confirmedById ?? raw.submittedById ?? raw.userId;
+
+  return {
+    assignmentId,
+    status,
+    confirmedBy:
+      raw.confirmedBy?.name ?? members.find((m) => m.id === byId)?.name,
+    confirmedAt: raw.confirmedAt ?? raw.submittedAt ?? raw.createdAt,
+  };
+};
+
+type GroupState =
+  | { status: "loading" }
+  | { status: "error"; message: string }
+  | {
+      status: "ready";
+      group: Group;
+      rows: { assignment: Assignment; submission: Submission }[];
+    };
+
+function StatusPage({ title, detail }: { title: string; detail?: string }) {
+  return (
+    <div className="min-h-screen bg-[#F5F6FC] text-[#111936]">
+      <Navbar />
+      <main className="mx-auto max-w-6xl px-6 py-12">
+        <div className="mt-8 rounded-2xl border border-[#E4E7F3] bg-white p-8">
+          <h1 className="text-2xl font-semibold">{title}</h1>
+          {detail && <p className="mt-2 text-sm text-[#68718F]">{detail}</p>}
+        </div>
+      </main>
+    </div>
+  );
+}
 
 const DAY = 86_400_000;
 
+// Accepts "YYYY-MM-DD" or a full ISO timestamp (what the API returns)
+// and gives back local midnight of that calendar day.
 function parseLocalDate(date: string) {
-  const [year, month, day] = date.split("-").map(Number);
-  return new Date(year, month - 1, day);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    const [year, month, day] = date.split("-").map(Number);
+    return new Date(year, month - 1, day);
+  }
+
+  const d = new Date(date);
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
 }
 
 function daysUntil(date: string) {
@@ -211,9 +201,11 @@ function StatCard({
 function MemberCard({
   member,
   index,
+  isYou,
 }: {
   member: Member;
   index: number;
+  isYou: boolean;
 }) {
   const avatarColors = [
     "bg-[#EDEEFF] text-[#293BFA]",
@@ -241,7 +233,7 @@ function MemberCard({
         </p>
       </div>
 
-      {index === 0 && (
+      {isYou && (
         <span className="rounded-full bg-[#EEF0FF] px-2.5 py-1 text-xs font-medium text-[#293BFA]">
           You
         </span>
@@ -252,38 +244,54 @@ function MemberCard({
 
 export default function GroupPage() {
   const { groupId } = useParams();
+  const { user } = useAuth();
+  const [state, setState] = useState<GroupState>({ status: "loading" });
 
-  // Mock group is shown for preview.
-  const group =
-    !groupId || groupId === MOCK_GROUP.id ? MOCK_GROUP : null;
+  useEffect(() => {
+    let cancelled = false;
+    setState({ status: "loading" });
 
-  if (!group) {
-    return (
-      <div className="min-h-screen bg-[#F5F6FC] text-[#111936]">
-        <Navbar />
-        <main className="mx-auto max-w-6xl px-6 py-12">
-          <div className="mt-8 rounded-2xl border border-[#E4E7F3] bg-white p-8">
-            <h1 className="text-2xl font-semibold">Group not found</h1>
-            <p className="mt-2 text-sm text-[#68718F]">
-              The requested group could not be found.
-            </p>
-          </div>
-        </main>
-      </div>
-    );
-  }
+    api
+      .get(`/group/details/${groupId}`)
+      .then(({ data }) => {
+        if (cancelled) return;
 
-  const assignmentData = MOCK_ASSIGNMENTS.map((assignment) => {
-    const submission =
-      MOCK_SUBMISSIONS.find(
-        (item) => item.assignmentId === assignment.id
-      ) ?? {
-        assignmentId: assignment.id,
-        status: "PENDING" as const,
-      };
+        const group = toGroup(data.group);
 
-    return { assignment, submission };
-  });
+        // group.assignments is AssignmentGroup[]; each carries the assignment
+        // and that assignment's submissions already filtered to this group.
+        const rows = (data.group.assignments ?? []).map((ag: any) => ({
+          assignment: toAssignment(ag.assignment),
+          submission: toSubmission(
+            ag.assignment.submissions?.[0],
+            ag.assignment.id,
+            group.members
+          ),
+        }));
+
+        setState({ status: "ready", group, rows });
+      })
+      .catch((e) => {
+        if (!cancelled) {
+          setState({
+            status: "error",
+            message: errMsg(e, "The requested group could not be loaded."),
+          });
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [groupId]);
+
+  if (state.status === "loading") return <StatusPage title="Loading group…" />;
+
+  if (state.status === "error")
+    return <StatusPage title="Group not found" detail={state.message} />;
+
+  const { group } = state;
+  const assignmentData = state.rows;
 
   const total = assignmentData.length;
 
@@ -468,6 +476,7 @@ export default function GroupPage() {
                     key={member.id}
                     member={member}
                     index={index}
+                    isYou={member.id === user?.id}
                   />
                 ))}
               </div>
@@ -492,6 +501,12 @@ export default function GroupPage() {
             </div>
 
             <div className="overflow-hidden rounded-2xl border border-[#E4E7F3] bg-white shadow-[0_3px_8px_rgba(20,30,70,0.04)]">
+              {sortedAssignments.length === 0 && (
+                <p className="p-6 text-sm text-[#68718F]">
+                  No assignments have been given to this group yet.
+                </p>
+              )}
+
               {sortedAssignments.map(
                 ({ assignment, submission }, index) => {
                   const isSubmitted =
