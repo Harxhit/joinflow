@@ -33,7 +33,6 @@ type Assignment = {
   groupIds: string[] | "all";
 };
 
-type AssignmentInput = Omit<Assignment, "id">;
 type View = "student" | "admin";
 
 /* ---------- API helpers (groups) ---------- */
@@ -52,143 +51,194 @@ const toGroup = (g: any): Group => ({
   })),
 });
 
-const daysFromNow = (n: number) =>
-  new Date(Date.now() + n * 86_400_000).toISOString();
+// Backend assignment -> UI assignment. groupIds are the groups it was given to.
+const toAssignment = (a: any): Assignment => ({
+  id: a.id,
+  title: a.title,
+  description: a.description ?? "",
+  dueDate: a.dueDate,
+  oneDriveUrl: a.oneDriveUrl ?? "",
+  groupIds: (a.groups ?? []).map((g: any) => g.groupId),
+});
 
-const key = (assignmentId: string, groupId: string) =>
-  `${assignmentId}:${groupId}`;
+// A Submission row for (assignment, group). No row means still pending.
+// Field names are my best guess at your Prisma model: adjust here if they differ.
+const toSubmission = (raw: any, members: Member[]): Submission => {
+  if (!raw) return { status: "PENDING" };
 
-const NAMES = [
-  ["Aarav Mehta", "Meera Iyer", "Kabir Shah", "Isha Verma"],
-  ["Rohan Das", "Tara Nair", "Dev Patel", "Anaya Rao"],
-  ["Neel Joshi", "Sana Khan", "Vivaan Gupta", "Riya Sen"],
-  ["Yash Malik", "Kiara Bose", "Arjun Pillai", "Zoya Ali"],
-];
+  const status = raw.status
+    ? String(raw.status).toUpperCase() === "SUBMITTED"
+      ? "SUBMITTED"
+      : "PENDING"
+    : "SUBMITTED";
 
-const GROUP_NAMES = ["Orbit", "Nimbus", "Quanta", "Helix"];
+  const byId = raw.confirmedById ?? raw.submittedById ?? raw.userId;
 
-const SEED_GROUPS: Group[] = GROUP_NAMES.map((name, i) => ({
-  id: `g${i + 1}`,
-  name,
-  members: NAMES[i].map((n, j) => ({
-    id: `g${i + 1}-m${j}`,
-    name: n,
-    email: `${n.split(" ")[0].toLowerCase()}@college.edu`,
-  })),
-}));
-
-const SEED_ASSIGNMENTS: Assignment[] = [
-  {
-    id: "a1",
-    title: "Lab 4: Process scheduling",
-    description:
-      "Implement round robin and MLFQ, then compare average waiting time.",
-    dueDate: daysFromNow(2),
-    oneDriveUrl: "https://onedrive.live.com/",
-    groupIds: "all",
-  },
-  {
-    id: "a2",
-    title: "ER diagram and schema",
-    description:
-      "Model the library system and submit the diagram with your SQL.",
-    dueDate: daysFromNow(5),
-    oneDriveUrl: "https://onedrive.live.com/",
-    groupIds: "all",
-  },
-  {
-    id: "a3",
-    title: "Mini project proposal",
-    description: "Two pages: problem, users, stack and timeline.",
-    dueDate: daysFromNow(9),
-    oneDriveUrl: "https://onedrive.live.com/",
-    groupIds: ["g1", "g2", "g3"],
-  },
-  {
-    id: "a4",
-    title: "Literature survey",
-    description: "Ten papers, one paragraph each.",
-    dueDate: daysFromNow(-1),
-    oneDriveUrl: "https://onedrive.live.com/",
-    groupIds: "all",
-  },
-];
-
-const done = (
-  assignmentId: string,
-  groupId: string,
-  by: string,
-  daysAgo: number
-): [string, Submission] => [
-  key(assignmentId, groupId),
-  {
-    status: "SUBMITTED",
-    confirmedBy: by,
-    confirmedAt: daysFromNow(-daysAgo),
-  },
-];
-
-const SEED_SUBMISSIONS: Record<string, Submission> = Object.fromEntries([
-  done("a1", "g2", "Rohan Das", 1),
-  done("a2", "g3", "Sana Khan", 0),
-  done("a3", "g1", "Meera Iyer", 2),
-  done("a4", "g1", "Aarav Mehta", 3),
-  done("a4", "g2", "Tara Nair", 2),
-  done("a4", "g3", "Neel Joshi", 2),
-]);
-
-function useMockData(user: AppUser) {
-  // Only the professor view still reads this: there is no "list all groups" endpoint yet.
-  const [groups] = useState<Group[]>(SEED_GROUPS);
-  const [assignments, setAssignments] =
-    useState<Assignment[]>(SEED_ASSIGNMENTS);
-  const [submissions, setSubmissions] =
-    useState<Record<string, Submission>>(SEED_SUBMISSIONS);
-
-  const statusOf = (
-    assignmentId: string,
-    groupId: string
-  ): Submission =>
-    submissions[key(assignmentId, groupId)] ?? {
-      status: "PENDING",
-    };
-
-  const targetsOf = (a: Assignment): Group[] => {
-    const ids = a.groupIds;
-    return ids === "all"
-      ? groups
-      : groups.filter((g) => ids.includes(g.id));
+  return {
+    status,
+    confirmedBy:
+      raw.confirmedBy?.name ?? members.find((m) => m.id === byId)?.name,
+    confirmedAt: raw.confirmedAt ?? raw.submittedAt ?? raw.createdAt,
   };
+};
 
-  const confirm = (assignmentId: string, groupId: string) => {
+const PENDING: Submission = { status: "PENDING" };
+
+/*
+ * Student: the server already limits /assignment/all to the student's group.
+ * Submission status for that group comes from /group/details/:id.
+ */
+function useStudentAssignments(
+  groupId: string | null,
+  ready: boolean,
+  user: AppUser
+) {
+  const [assignments, setAssignments] = useState<Assignment[]>([]);
+  const [submissions, setSubmissions] = useState<Record<string, Submission>>(
+    {}
+  );
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!ready) return;
+
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+
+    (async () => {
+      try {
+        const [allRes, groupRes] = await Promise.all([
+          api.get("/assignment/all"),
+          groupId ? api.get(`/group/details/${groupId}`) : Promise.resolve(null),
+        ]);
+
+        if (cancelled) return;
+
+        setAssignments((allRes.data.assignments ?? []).map(toAssignment));
+
+        const byAssignment: Record<string, Submission> = {};
+
+        if (groupRes) {
+          const members = toGroup(groupRes.data.group).members;
+
+          for (const ag of groupRes.data.group.assignments ?? []) {
+            byAssignment[ag.assignment.id] = toSubmission(
+              ag.assignment.submissions?.[0],
+              members
+            );
+          }
+        }
+
+        setSubmissions(byAssignment);
+      } catch (e) {
+        if (!cancelled) setError(errMsg(e, "Could not load assignments"));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [groupId, ready]);
+
+  const statusOf = (assignmentId: string): Submission =>
+    submissions[assignmentId] ?? PENDING;
+
+  // There is no confirm endpoint yet, so this only updates local state.
+  const confirm = (assignmentId: string) =>
     setSubmissions((s) => ({
       ...s,
-      [key(assignmentId, groupId)]: {
+      [assignmentId]: {
         status: "SUBMITTED",
         confirmedBy: user.name,
         confirmedAt: new Date().toISOString(),
       },
     }));
-  };
 
-  const saveAssignment = (input: AssignmentInput, id?: string) =>
-    setAssignments((list) =>
-      id
-        ? list.map((a) => (a.id === id ? { ...a, ...input } : a))
-        : [{ id: `a-${Date.now()}`, ...input }, ...list]
-    );
-
-  return {
-    groups,
-    assignments,
-    statusOf,
-    targetsOf,
-    confirm,
-    saveAssignment,
-  };
+  return { assignments, statusOf, confirm, loading, error };
 }
 
-type Data = ReturnType<typeof useMockData>;
+type AssignmentDetail = {
+  groups: Group[];
+  submissions: Record<string, Submission>; // keyed by groupId
+};
+
+/*
+ * Professor: /assignment/all for the list, then /assignment/:id for each one
+ * to get its groups, members and submissions.
+ */
+function useAdminData() {
+  const [assignments, setAssignments] = useState<Assignment[]>([]);
+  const [details, setDetails] = useState<Record<string, AssignmentDetail>>({});
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const { data } = await api.get("/assignment/all");
+        const list: Assignment[] = (data.assignments ?? []).map(toAssignment);
+
+        const responses = await Promise.all(
+          list.map((a) => api.get(`/assignment/${a.id}`))
+        );
+
+        if (cancelled) return;
+
+        const byId: Record<string, AssignmentDetail> = {};
+
+        responses.forEach((res, i) => {
+          const raw = res.data.assignment;
+
+          const groups: Group[] = (raw.groups ?? []).map((ag: any) =>
+            toGroup(ag.group)
+          );
+
+          const submissions: Record<string, Submission> = {};
+
+          for (const sub of raw.submissions ?? []) {
+            const group = groups.find((g) => g.id === sub.groupId);
+            submissions[sub.groupId] = toSubmission(sub, group?.members ?? []);
+          }
+
+          byId[list[i].id] = { groups, submissions };
+        });
+
+        setAssignments(list);
+        setDetails(byId);
+      } catch (e) {
+        if (!cancelled) setError(errMsg(e, "Could not load assignments"));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const targetsOf = (a: Assignment): Group[] => details[a.id]?.groups ?? [];
+
+  const statusOf = (assignmentId: string, groupId: string): Submission =>
+    details[assignmentId]?.submissions[groupId] ?? PENDING;
+
+  // Every group that has at least one assignment.
+  const groups = Array.from(
+    new Map(
+      Object.values(details)
+        .flatMap((d) => d.groups)
+        .map((g) => [g.id, g] as const)
+    ).values()
+  );
+
+  return { assignments, groups, statusOf, targetsOf, loading, error };
+}
 
 /* The logged-in student's own group, straight from the API. */
 function useMyGroup() {
@@ -369,15 +419,7 @@ function SubmittedMark({ children }: { children: string }) {
   );
 }
 
-function StudentView({
-  user,
-  data,
-}: {
-  user: AppUser;
-  data: Data;
-}) {
-  const { assignments, statusOf, confirm } = data;
-
+function StudentView({ user }: { user: AppUser }) {
   const {
     group: myGroup,
     loading: groupLoading,
@@ -385,6 +427,14 @@ function StudentView({
     createGroup,
     addMember,
   } = useMyGroup();
+
+  const {
+    assignments,
+    statusOf,
+    confirm,
+    loading: assignmentsLoading,
+    error: assignmentsError,
+  } = useStudentAssignments(myGroup?.id ?? null, !groupLoading, user);
 
   const [flow, setFlow] = useState<{
     id: string;
@@ -437,7 +487,7 @@ function StudentView({
 
   const isDone = (a: Assignment) =>
     !!myGroup &&
-    statusOf(a.id, myGroup.id).status === "SUBMITTED";
+    statusOf(a.id).status === "SUBMITTED";
 
   const sorted = useMemo(
     () =>
@@ -465,9 +515,12 @@ function StudentView({
             <p className="mt-2 text-[15px] text-[#5B6180]">
               {next
                 ? `Next up: ${next.title}. ${dueText(next.dueDate)}.`
-                : "Your group has submitted everything."}
+                : assignments.length === 0
+                  ? "No assignments yet."
+                  : "Your group has submitted everything."}
             </p>
 
+            {assignments.length > 0 && (
             <div className="mt-5 max-w-md">
               <div className="mb-2 flex justify-between text-sm">
                 <span className="font-medium">
@@ -497,8 +550,9 @@ function StudentView({
                 ))}
               </div>
             </div>
+            )}
           </>
-        ) : (
+        ) : groupLoading ? null : (
           <p className="mt-2 text-[15px] text-[#5B6180]">
             Create a group first, then your group can confirm each submission.
           </p>
@@ -507,11 +561,32 @@ function StudentView({
 
       <div className="grid gap-8 lg:grid-cols-[1fr_340px]">
         <section aria-label="Assignments">
+          {assignmentsLoading || groupLoading ? (
+            <div className={`${panel} p-8 text-sm text-[#5B6180]`}>
+              Loading assignments…
+            </div>
+          ) : assignmentsError ? (
+            <div
+              role="alert"
+              className={`${panel} p-8 text-sm text-[#B42318]`}
+            >
+              {assignmentsError}
+            </div>
+          ) : sorted.length === 0 ? (
+            <div className={`${panel} p-8`}>
+              <h2 className="jf-display text-xl font-bold">
+                No assignments yet
+              </h2>
+              <p className="mt-2 text-sm text-[#5B6180]">
+                {myGroup
+                  ? "Your professor hasn't given your group any assignments yet. They will show up here as soon as they do."
+                  : "Assignments are given to groups. Create a group and they will show up here."}
+              </p>
+            </div>
+          ) : (
           <ul className={`divide-y divide-[#E3E5F1] overflow-hidden ${panel}`}>
             {sorted.map((a) => {
-              const sub = myGroup
-                ? statusOf(a.id, myGroup.id)
-                : null;
+              const sub = myGroup ? statusOf(a.id) : null;
 
               const active = flow?.id === a.id ? flow : null;
 
@@ -631,7 +706,7 @@ function StudentView({
                             type="button"
                             className={`${btnPrimary} h-9 px-3`}
                             onClick={() => {
-                              confirm(a.id, myGroup.id);
+                              confirm(a.id);
                               setFlow(null);
                             }}
                           >
@@ -655,6 +730,7 @@ function StudentView({
               );
             })}
           </ul>
+          )}
         </section>
 
         <aside
@@ -794,14 +870,9 @@ function StudentView({
   );
 }
 
-function AdminView({
-  user,
-  data,
-}: {
-  user: AppUser;
-  data: Data;
-}) {
-  const { assignments, groups, statusOf, targetsOf } = data;
+function AdminView({ user }: { user: AppUser }) {
+  const { assignments, groups, statusOf, targetsOf, loading, error } =
+    useAdminData();
   const navigate = useNavigate();
   const [open, setOpen] = useState<string | null>(null);
 
@@ -865,7 +936,9 @@ function AdminView({
           </h1>
 
           <p className="mt-2 text-[15px] text-[#5B6180]">
-            {assignments.length === 0
+            {loading
+              ? "Loading assignments…"
+              : assignments.length === 0
               ? `Welcome, ${user.name.split(" ")[0]}. Create your first assignment to get started.`
               : `${submittedAll} of ${totalAll} group submissions are in across ${assignments.length} ${assignments.length === 1 ? "assignment" : "assignments"}.`}
           </p>
@@ -882,6 +955,28 @@ function AdminView({
 
       <div className="grid gap-8 lg:grid-cols-[1fr_320px]">
         <section aria-label="Assignments">
+          {loading ? (
+            <div className={`${panel} p-8 text-sm text-[#5B6180]`}>
+              Loading assignments…
+            </div>
+          ) : error ? (
+            <div
+              role="alert"
+              className={`${panel} p-8 text-sm text-[#B42318]`}
+            >
+              {error}
+            </div>
+          ) : rows.length === 0 ? (
+            <div className={`${panel} p-8`}>
+              <h2 className="jf-display text-xl font-bold">
+                No assignments yet
+              </h2>
+              <p className="mt-2 text-sm text-[#5B6180]">
+                Use "New assignment" to create one and choose which groups
+                receive it.
+              </p>
+            </div>
+          ) : (
           <ul className={`divide-y divide-[#E3E5F1] overflow-hidden ${panel}`}>
             {rows.map(({ a, targets, submitted, total }) => {
               const pct = total
@@ -957,9 +1052,8 @@ function AdminView({
                     <div className="border-t border-[#E3E5F1] bg-[#FAFBFE] p-5">
                       <div className="mb-4 flex flex-wrap items-center justify-between gap-2 text-sm text-[#5B6180]">
                         <span>
-                          {a.groupIds === "all"
-                            ? "Assigned to all groups"
-                            : `Assigned to ${targets.length} groups`}
+                          Assigned to {targets.length}{" "}
+                          {targets.length === 1 ? "group" : "groups"}
                         </span>
 
                         <a
@@ -1049,6 +1143,7 @@ function AdminView({
               );
             })}
           </ul>
+          )}
         </section>
 
         <aside
@@ -1099,6 +1194,7 @@ function AdminView({
             </div>
           </div>
 
+          {behind.length > 0 && (
           <div className="mt-7 border-t border-[#E3E5F1] pt-5">
             <p className="text-sm font-semibold">
               Groups furthest behind
@@ -1124,6 +1220,7 @@ function AdminView({
               ))}
             </ul>
           </div>
+          )}
         </aside>
       </div>
     </>
@@ -1141,8 +1238,6 @@ export default function Dashboard() {
     role: "student",
   };
 
-  const data = useMockData(me);
-
   const role = String(me.role).toLowerCase();
 
   const view: View =
@@ -1157,9 +1252,9 @@ export default function Dashboard() {
 
       <main className="mx-auto max-w-6xl px-6 py-10">
         {view === "admin" ? (
-          <AdminView user={me} data={data} />
+          <AdminView user={me} />
         ) : (
-          <StudentView user={me} data={data} />
+          <StudentView user={me} />
         )}
       </main>
     </div>

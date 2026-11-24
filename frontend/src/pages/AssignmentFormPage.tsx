@@ -1,8 +1,8 @@
-
-import { useState, type FormEvent } from "react";
-import { Link } from "react-router-dom";
-import { ArrowLeft, CalendarDays, FileText, Users, X } from "lucide-react";
+import { useEffect, useState, type FormEvent } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { CalendarDays, FileText, Users, X } from "lucide-react";
 import Navbar from "./Navbar";
+import api from "../services/api";
 
 type Group = {
   id: string;
@@ -10,54 +10,58 @@ type Group = {
   members: number;
 };
 
-type Assignment = {
-  id?: string;
-  title: string;
-  description: string;
-  dueDate: string;
-  oneDriveUrl: string;
-  groupIds: string[] | "all";
-};
-
-type Props = {
-  initial?: Assignment;
-  groups?: Group[];
-  onSave?: (assignment: Assignment) => void;
-};
-
-const mockGroups: Group[] = [
-  { id: "g1", name: "Orbit", members: 4 },
-  { id: "g2", name: "Nimbus", members: 4 },
-  { id: "g3", name: "Quanta", members: 4 },
-  { id: "g4", name: "Helix", members: 4 },
-];
-
 const inputClass =
   "w-full rounded-lg border border-[#DADDEE] bg-white px-4 py-3 text-sm text-[#0F1433] outline-none transition placeholder:text-[#9CA1BC] focus:border-[#2336F0] focus:ring-4 focus:ring-[#2336F0]/10";
 
 const labelClass = "mb-2 block text-sm font-semibold text-[#0F1433]";
 
-export default function AssignmentFormPage({
-  initial,
-  groups = mockGroups,
-  onSave,
-}: Props) {
-  const [title, setTitle] = useState(initial?.title ?? "");
-  const [description, setDescription] = useState(initial?.description ?? "");
-  const [dueDate, setDueDate] = useState(
-    initial?.dueDate ? initial.dueDate.slice(0, 10) : ""
-  );
-  const [oneDriveUrl, setOneDriveUrl] = useState(
-    initial?.oneDriveUrl ?? ""
-  );
-  const [audience, setAudience] = useState<"all" | "groups">(
-    initial?.groupIds === "all" ? "all" : "groups"
-  );
-  const [selectedGroups, setSelectedGroups] = useState<string[]>(
-    initial?.groupIds === "all" ? [] : initial?.groupIds ?? []
-  );
+const errMsg = (e: unknown, fallback: string): string =>
+  (e as any)?.response?.data?.message ?? fallback;
 
+// Accepts { _count: { members } } or a members array.
+const toGroups = (raw: any[] | undefined): Group[] =>
+  (raw ?? []).map((g) => ({
+    id: g.id,
+    name: g.name,
+    members: g._count?.members ?? g.members?.length ?? 0,
+  }));
+
+export default function AssignmentFormPage() {
+  const navigate = useNavigate();
+
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [dueDate, setDueDate] = useState("");
+  const [oneDriveUrl, setOneDriveUrl] = useState("");
+  const [audience, setAudience] = useState<"all" | "groups">("groups");
+  const [selectedGroups, setSelectedGroups] = useState<string[]>([]);
+
+  const [groups, setGroups] = useState<Group[]>([]);
+  const [groupsLoading, setGroupsLoading] = useState(true);
+  const [groupsError, setGroupsError] = useState<string | null>(null);
+
+  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    api
+      .get("/group/all")
+      .then(({ data }) => {
+        if (!cancelled) setGroups(toGroups(data.groups));
+      })
+      .catch((e) => {
+        if (!cancelled) setGroupsError(errMsg(e, "Could not load groups"));
+      })
+      .finally(() => {
+        if (!cancelled) setGroupsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const toggleGroup = (id: string) => {
     setSelectedGroups((current) =>
@@ -67,7 +71,7 @@ export default function AssignmentFormPage({
     );
   };
 
-  const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError("");
 
@@ -76,14 +80,22 @@ export default function AssignmentFormPage({
       return;
     }
 
-    onSave?.({
-      id: initial?.id,
-      title: title.trim(),
-      description: description.trim(),
-      dueDate: new Date(`${dueDate}T23:59:00`).toISOString(),
-      oneDriveUrl: oneDriveUrl.trim(),
-      groupIds: audience === "all" ? "all" : selectedGroups,
-    });
+    setSubmitting(true);
+
+    try {
+      await api.post("/assignment/create", {
+        title: title.trim(),
+        description: description.trim(),
+        dueDate: new Date(`${dueDate}T23:59:00`).toISOString(),
+        oneDriveUrl: oneDriveUrl.trim(),
+        groupIds: audience === "all" ? "all" : selectedGroups,
+      });
+
+      navigate("/dashboard");
+    } catch (err) {
+      setError(errMsg(err, "Could not create the assignment"));
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -242,31 +254,43 @@ export default function AssignmentFormPage({
                       </span>
                     </div>
 
-                   <div className="max-h-64 space-y-2 overflow-y-auto overscroll-contain pr-2 [scrollbar-width:thin] [scrollbar-color:#C7CCE0_transparent]">
-                      {groups.map((group) => (
-                        <label
-                          key={group.id}
-                          className="flex cursor-pointer items-center justify-between rounded-lg p-2 transition hover:bg-[#F6F7FB]"
-                        >
-                          <span>
-                            <span className="block text-sm font-medium">
-                              {group.name}
+                    {groupsLoading ? (
+                      <p className="text-sm text-[#68718F]">Loading groups…</p>
+                    ) : groupsError ? (
+                      <p role="alert" className="text-sm text-[#B42318]">
+                        {groupsError}
+                      </p>
+                    ) : groups.length === 0 ? (
+                      <p className="text-sm text-[#68718F]">
+                        No groups have been created yet. Students create groups
+                        from their dashboard.
+                      </p>
+                    ) : (
+                      <div className="max-h-64 space-y-2 overflow-y-auto overscroll-contain pr-2 [scrollbar-width:thin] [scrollbar-color:#C7CCE0_transparent]">
+                        {groups.map((group) => (
+                          <label
+                            key={group.id}
+                            className="flex cursor-pointer items-center justify-between rounded-lg p-2 transition hover:bg-[#F6F7FB]"
+                          >
+                            <span>
+                              <span className="block text-sm font-medium">
+                                {group.name}
+                              </span>
+                              <span className="text-xs text-[#68718F]">
+                                {group.members}{" "}
+                                {group.members === 1 ? "member" : "members"}
+                              </span>
                             </span>
-                            <span className="text-xs text-[#68718F]">
-                              {group.members} members
-                            </span>
-                          </span>
-                          <input
-                            type="checkbox"
-                            checked={selectedGroups.includes(group.id)}
-                            onChange={() => toggleGroup(group.id)}
-                            className="h-4 w-4 accent-[#2336F0]"
-                          />
-                        </label>
-                      ))}
-
-
-                    </div>
+                            <input
+                              type="checkbox"
+                              checked={selectedGroups.includes(group.id)}
+                              onChange={() => toggleGroup(group.id)}
+                              className="h-4 w-4 accent-[#2336F0]"
+                            />
+                          </label>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
               </section>
@@ -289,9 +313,10 @@ export default function AssignmentFormPage({
             </Link>
             <button
               type="submit"
-              className="inline-flex h-11 items-center justify-center rounded-lg bg-[#2336F0] px-6 text-sm font-semibold text-white shadow-[0_2px_0_0_#1424B8] transition hover:bg-[#1A2BDB]"
+              disabled={submitting}
+              className="inline-flex h-11 items-center justify-center rounded-lg bg-[#2336F0] px-6 text-sm font-semibold text-white shadow-[0_2px_0_0_#1424B8] transition hover:bg-[#1A2BDB] disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {initial ? "Save changes" : "Create assignment"}
+              {submitting ? "Creating…" : "Create assignment"}
             </button>
           </div>
         </form>
