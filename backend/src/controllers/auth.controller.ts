@@ -110,6 +110,11 @@ const signUp = async(request: Request, response:Response) => {
             path: "/",
         });
 
+        return response.status(201).json({
+            success: true,
+            message: "Signup successful",
+        });
+
     } catch (error) {
         handlePrismaError(error , response)
     }

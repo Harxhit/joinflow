@@ -1,12 +1,8 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Check, Eye, EyeOff, LockKeyhole, Mail, User } from "lucide-react";
-import api from "../services/api";
+import { useAuth } from "../context/AuthContext";
 
-/*
-  Same palette as Login.tsx
-  cobalt #2336F0 | ink #0F1433 | paper #F6F7FB | highlight #FFE14D | confirm #14A36B
-*/
 
 const STEPS = [
   {
@@ -138,7 +134,7 @@ export default function Signup() {
   const [error, setError] = useState("");
 
   const strength = getStrength(form.password);
-
+  const {signup} = useAuth()
   const updateField = (field: keyof typeof form, value: string) => {
     setForm((prev) => ({ ...prev, [field]: value }));
   };
@@ -149,7 +145,12 @@ export default function Signup() {
     setLoading(true);
 
     try {
-      await api.post("/auth/signup", form);
+      await signup({
+        name: form.name,
+        email: form.email,
+        password: form.password,
+      });
+
       navigate("/dashboard");
     } catch (err: unknown) {
       const message = (

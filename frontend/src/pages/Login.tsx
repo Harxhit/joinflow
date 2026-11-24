@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { Check, Eye, EyeOff, LockKeyhole, Mail } from "lucide-react";
-import api from "../services/api";
+import { useAuth } from "../context/AuthContext";
 
 /*
   Palette
@@ -207,13 +207,13 @@ function Preview() {
 }
 
 export default function Login() {
-  const navigate = useNavigate();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const { login } = useAuth();
 
   const handleLogin = async (e: FormEvent) => {
     e.preventDefault();
@@ -221,8 +221,8 @@ export default function Login() {
     setLoading(true);
 
     try {
-      await api.post("/auth/login", { email, password });
-      navigate("/dashboard");
+      await login(email, password);
+      window.location.href = "/dashboard";
     } catch (err: unknown) {
       const message = (
         err as { response?: { data?: { message?: string } } }
