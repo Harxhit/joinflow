@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   ArrowLeft,
@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import Navbar from "./Navbar";
 import { useAuth } from "../context/AuthContext";
+import api from "../services/api";
 
 type AppUser = { id: string; name: string; email: string; role: string };
 type Member = { id: string; name: string; email: string };
@@ -35,6 +36,55 @@ type Assignment = {
 
 type AssignmentInput = Omit<Assignment, "id">;
 type View = "student" | "admin";
+
+/* ---------- API helpers (groups) ---------- */
+
+const errMsg = (e: unknown, fallback: string): string =>
+  (e as any)?.response?.data?.message ?? fallback;
+
+// Backend group -> UI group. Members come back as { user: { id, name, email } }.
+const toGroup = (g: any): Group => ({
+  id: g.id,
+  name: g.name,
+  members: (g.members ?? []).map((m: any) => ({
+    id: m.user.id,
+    name: m.user.name,
+    email: m.user.email,
+  })),
+});
+
+// Backend assignment -> UI assignment (only the fields the group page shows).
+const toAssignment = (a: any): Assignment => ({
+  id: a.id,
+  title: a.title,
+  description: a.description ?? "",
+  dueDate: a.dueDate,
+  oneDriveUrl: a.oneDriveUrl ?? a.oneDriveLink ?? a.link ?? "",
+  groupIds: "all",
+});
+
+// A Submission row for (assignment, group). No row means still pending.
+// Field names are my best guess at your Prisma model: adjust here if they differ.
+const toSubmission = (raw: any, members: Member[]): Submission => {
+  if (!raw) return { status: "PENDING" };
+
+  const status = raw.status
+    ? String(raw.status).toUpperCase() === "SUBMITTED"
+      ? "SUBMITTED"
+      : "PENDING"
+    : "SUBMITTED";
+
+  const byId = raw.confirmedById ?? raw.submittedById ?? raw.userId;
+
+  return {
+    status,
+    confirmedBy:
+      raw.confirmedBy?.name ?? members.find((m) => m.id === byId)?.name,
+    confirmedAt: raw.confirmedAt ?? raw.submittedAt ?? raw.createdAt,
+  };
+};
+
+
 
 const daysFromNow = (n: number) =>
   new Date(Date.now() + n * 86_400_000).toISOString();
@@ -122,14 +172,12 @@ const SEED_SUBMISSIONS: Record<string, Submission> = Object.fromEntries([
 ]);
 
 function useMockData(user: AppUser) {
-  const [groups, setGroups] = useState<Group[]>(SEED_GROUPS);
-  const [myGroupId, setMyGroupId] = useState<string | null>(null);
+  // Only the professor view still reads this: there is no "list all groups" endpoint yet.
+  const [groups] = useState<Group[]>(SEED_GROUPS);
   const [assignments, setAssignments] =
     useState<Assignment[]>(SEED_ASSIGNMENTS);
   const [submissions, setSubmissions] =
     useState<Record<string, Submission>>(SEED_SUBMISSIONS);
-
-  const myGroup = groups.find((g) => g.id === myGroupId) ?? null;
 
   const statusOf = (
     assignmentId: string,
@@ -146,71 +194,10 @@ function useMockData(user: AppUser) {
       : groups.filter((g) => ids.includes(g.id));
   };
 
-  const createGroup = (name: string) => {
-    const id = `g-${Date.now()}`;
-
-    setGroups((gs) => [
-      ...gs,
-      {
-        id,
-        name,
-        members: [
-          {
-            id: user.id || "me",
-            name: user.name,
-            email: user.email,
-          },
-        ],
-      },
-    ]);
-
-    setMyGroupId(id);
-  };
-
-  const addMember = (identifier: string) => {
-    if (!myGroupId) return;
-
-    const isEmail = identifier.includes("@");
-    const email = isEmail
-      ? identifier
-      : `${identifier.toLowerCase()}@college.edu`;
-
-    const base = isEmail
-      ? identifier.split("@")[0]
-      : identifier;
-
-    const name = base
-      .replace(/[._-]+/g, " ")
-      .replace(/\b\w/g, (c) => c.toUpperCase());
-
-    setGroups((gs) =>
-      gs.map((g) =>
-        g.id !== myGroupId ||
-        g.members.some(
-          (m) => m.email.toLowerCase() === email.toLowerCase()
-        )
-          ? g
-          : {
-              ...g,
-              members: [
-                ...g.members,
-                {
-                  id: `m-${Date.now()}`,
-                  name,
-                  email,
-                },
-              ],
-            }
-      )
-    );
-  };
-
-  const confirm = (assignmentId: string) => {
-    if (!myGroupId) return;
-
+  const confirm = (assignmentId: string, groupId: string) => {
     setSubmissions((s) => ({
       ...s,
-      [key(assignmentId, myGroupId)]: {
+      [key(assignmentId, groupId)]: {
         status: "SUBMITTED",
         confirmedBy: user.name,
         confirmedAt: new Date().toISOString(),
@@ -227,18 +214,67 @@ function useMockData(user: AppUser) {
 
   return {
     groups,
-    myGroup,
     assignments,
     statusOf,
     targetsOf,
-    createGroup,
-    addMember,
     confirm,
     saveAssignment,
   };
 }
 
 type Data = ReturnType<typeof useMockData>;
+
+/* The logged-in student's own group, straight from the API. */
+function useMyGroup() {
+  const [group, setGroup] = useState<Group | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    api
+      .get("/group/me")
+      .then(({ data }) => {
+        if (!cancelled) setGroup(data.group ? toGroup(data.group) : null);
+      })
+      .catch((e) => {
+        // 404 just means "not in a group yet"
+        if (!cancelled && e?.response?.status !== 404) {
+          setError(errMsg(e, "Could not load your group"));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const refresh = async (id: string) => {
+    const { data } = await api.get(`/group/${id}`);
+    setGroup(toGroup(data.group));
+  };
+
+  const createGroup = async (name: string) => {
+    const { data } = await api.post("/group/create", { name });
+    await refresh(data.group.id);
+  };
+
+  const addMember = async (identifier: string) => {
+    if (!group) return;
+
+    await api.post(
+      `/group/${group.id}/members`,
+      identifier.includes("@") ? { email: identifier } : { studentId: identifier }
+    );
+    await refresh(group.id);
+  };
+
+  return { group, loading, error, createGroup, addMember };
+}
 
 const DAY = 86_400_000;
 
@@ -374,14 +410,15 @@ function StudentView({
   user: AppUser;
   data: Data;
 }) {
+  const { assignments, statusOf, confirm } = data;
+
   const {
-    assignments,
-    myGroup,
-    statusOf,
-    confirm,
+    group: myGroup,
+    loading: groupLoading,
+    error: groupLoadError,
     createGroup,
     addMember,
-  } = data;
+  } = useMyGroup();
 
   const [flow, setFlow] = useState<{
     id: string;
@@ -390,6 +427,47 @@ function StudentView({
 
   const [identifier, setIdentifier] = useState("");
   const [groupName, setGroupName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [memberError, setMemberError] = useState<string | null>(null);
+
+  const handleCreate = async (e: FormEvent) => {
+    e.preventDefault();
+
+    const name = groupName.trim();
+    if (!name || busy) return;
+
+    setBusy(true);
+    setCreateError(null);
+
+    try {
+      await createGroup(name);
+      setGroupName("");
+    } catch (err) {
+      setCreateError(errMsg(err, "Could not create the group"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleAddMember = async (e: FormEvent) => {
+    e.preventDefault();
+
+    const value = identifier.trim();
+    if (!value || busy) return;
+
+    setBusy(true);
+    setMemberError(null);
+
+    try {
+      await addMember(value);
+      setIdentifier("");
+    } catch (err) {
+      setMemberError(errMsg(err, "Could not add that student"));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const isDone = (a: Assignment) =>
     !!myGroup &&
@@ -587,7 +665,7 @@ function StudentView({
                             type="button"
                             className={`${btnPrimary} h-9 px-3`}
                             onClick={() => {
-                              confirm(a.id);
+                              confirm(a.id, myGroup.id);
                               setFlow(null);
                             }}
                           >
@@ -617,7 +695,9 @@ function StudentView({
           aria-label="Your group"
           className={`h-fit p-6 lg:sticky lg:top-24 ${panel}`}
         >
-          {myGroup ? (
+          {groupLoading ? (
+            <p className="text-sm text-[#5B6180]">Loading your group…</p>
+          ) : myGroup ? (
             <>
               <p className="text-sm text-[#5B6180]">Your groups</p>
 
@@ -665,13 +745,7 @@ function StudentView({
               </ul>
 
               <form
-                onSubmit={(e: FormEvent) => {
-                  e.preventDefault();
-                  if (identifier.trim()) {
-                    addMember(identifier.trim());
-                  }
-                  setIdentifier("");
-                }}
+                onSubmit={handleAddMember}
                 className="mt-6 border-t border-[#E3E5F1] pt-5"
               >
                 <label
@@ -694,20 +768,22 @@ function StudentView({
                     type="submit"
                     className={`${btnPrimary} h-11 w-11 shrink-0 px-0`}
                     aria-label="Add member"
+                    disabled={busy}
                   >
                     <UserPlus size={18} />
                   </button>
                 </div>
+
+                {memberError && (
+                  <p role="alert" className="mt-2 text-sm text-[#B42318]">
+                    {memberError}
+                  </p>
+                )}
               </form>
             </>
           ) : (
             <form
-              onSubmit={(e: FormEvent) => {
-                e.preventDefault();
-                if (groupName.trim()) {
-                  createGroup(groupName.trim());
-                }
-              }}
+              onSubmit={handleCreate}
             >
               <h2 className="jf-display text-xl font-bold">
                 Create your group
@@ -734,9 +810,16 @@ function StudentView({
               <button
                 type="submit"
                 className={`${btnPrimary} mt-4 w-full`}
+                disabled={busy}
               >
                 <Plus size={16} /> Create group
               </button>
+
+              {(createError || groupLoadError) && (
+                <p role="alert" className="mt-3 text-sm text-[#B42318]">
+                  {createError ?? groupLoadError}
+                </p>
+              )}
             </form>
           )}
         </aside>
@@ -1081,51 +1164,86 @@ function AdminView({
   );
 }
 
+type GroupRow = { a: Assignment; sub: Submission };
+
+type GroupState =
+  | { status: "loading" }
+  | { status: "error"; message: string }
+  | { status: "ready"; group: Group; rows: GroupRow[] };
+
+function StatusPage({ title, detail }: { title: string; detail?: string }) {
+  return (
+    <div className="jf-root min-h-screen bg-[#F6F7FB] text-[#0F1433]">
+      <style>{STYLES}</style>
+      <Navbar />
+
+      <main className="mx-auto max-w-6xl px-6 py-10">
+        <Link
+          to="/dashboard"
+          className="inline-flex items-center gap-1.5 text-sm text-[#5B6180] hover:text-[#2336F0]"
+        >
+          <ArrowLeft size={16} /> Back to dashboard
+        </Link>
+
+        <h1 className="jf-display mt-6 text-3xl font-bold">{title}</h1>
+        {detail && <p className="mt-2 text-[15px] text-[#5B6180]">{detail}</p>}
+      </main>
+    </div>
+  );
+}
+
 export function GroupPage() {
   const { groupId } = useParams();
-  const { user } = useAuth();
+  const [state, setState] = useState<GroupState>({ status: "loading" });
 
-  const me: AppUser = user ?? {
-    id: "me",
-    name: "Student",
-    email: "",
-    role: "professor",
-  };
+  useEffect(() => {
+    let cancelled = false;
+    setState({ status: "loading" });
 
-  const data = useMockData(me);
-  const { groups, assignments, statusOf, targetsOf } = data;
+    api
+      .get(`/group/details/${groupId}`)
+      .then(({ data }) => {
+        if (cancelled) return;
 
-  const group = groups.find((g) => g.id === groupId);
+        const group = toGroup(data.group);
 
-  if (!group) {
-    return (
-      <div className="jf-root min-h-screen bg-[#F6F7FB] text-[#0F1433]">
-        <style>{STYLES}</style>
-        <Navbar />
+        // group.assignments is AssignmentGroup[]; each has the assignment and
+        // that assignment's submissions already filtered to this group.
+        const rows: GroupRow[] = (data.group.assignments ?? []).map(
+          (ag: any) => ({
+            a: toAssignment(ag.assignment),
+            sub: toSubmission(ag.assignment.submissions?.[0], group.members),
+          })
+        );
 
-        <main className="mx-auto max-w-6xl px-6 py-10">
-          <h1 className="jf-display mt-6 text-3xl font-bold">
-            Group not found
-          </h1>
-        </main>
-      </div>
-    );
-  }
+        setState({ status: "ready", group, rows });
+      })
+      .catch((e) => {
+        if (!cancelled) {
+          setState({
+            status: "error",
+            message: errMsg(e, "Could not load this group"),
+          });
+        }
+      });
 
-  const mine = assignments
-    .filter((a) =>
-      targetsOf(a).some((g) => g.id === group.id)
-    )
-    .map((a) => ({
-      a,
-      sub: statusOf(a.id, group.id),
-    }))
-    .sort(
-      (x, y) =>
-        Number(x.sub.status === "SUBMITTED") -
-          Number(y.sub.status === "SUBMITTED") ||
-        +new Date(x.a.dueDate) - +new Date(y.a.dueDate)
-    );
+    return () => {
+      cancelled = true;
+    };
+  }, [groupId]);
+
+  if (state.status === "loading") return <StatusPage title="Loading group…" />;
+  if (state.status === "error")
+    return <StatusPage title="Can't open this group" detail={state.message} />;
+
+  const { group } = state;
+
+  const mine = [...state.rows].sort(
+    (x, y) =>
+      Number(x.sub.status === "SUBMITTED") -
+        Number(y.sub.status === "SUBMITTED") ||
+      +new Date(x.a.dueDate) - +new Date(y.a.dueDate)
+  );
 
   const total = mine.length;
   const submitted = mine.filter(

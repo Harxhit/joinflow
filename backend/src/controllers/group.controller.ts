@@ -1,7 +1,6 @@
 import type { Request, Response } from "express";
 import {prisma} from '../config/database'
 import { handlePrismaError } from "../utils/handleDBError";
-import { loginSchema } from "../validators/auth.validator";
 import { createGroupSchema , addMemberSchema} from "../validators/group.validator";
 
 const createGroup = async(request: Request, response: Response) => {
@@ -180,6 +179,44 @@ const getGroup = async (request: Request, response: Response) => {
     }
 };
 
+const getMyGroup = async (request: Request, response: Response) => {
+    try {
+        const membership = await prisma.groupMember.findUnique({
+            where: { userId: request.user.id },
+            select: { groupId: true },
+        });
+
+        if (!membership) {
+            return response.status(200).json({
+                success: true,
+                message: "You are not in a group yet",
+                group: null,
+            });
+        }
+
+        const group = await prisma.group.findUnique({
+            where: { id: membership.groupId },
+            include: {
+                members: {
+                    include: {
+                        user: {
+                            select: { id: true, name: true, email: true, studentId: true },
+                        },
+                    },
+                },
+            },
+        });
+
+        return response.status(200).json({
+            success: true,
+            message: "Group fetched successfully",
+            group,
+        });
+    } catch (error) {
+        handlePrismaError(error, response);
+    }
+};
+
 const getGroupDetails = async (request: Request, response: Response) => {
     try {
         const { groupId } = request.params;
@@ -262,4 +299,4 @@ const getGroupDetails = async (request: Request, response: Response) => {
     }
 };
 
-export{createGroup, addMember, getGroup, getGroupDetails}
+export{createGroup, addMember, getGroup, getGroupDetails, getMyGroup}
