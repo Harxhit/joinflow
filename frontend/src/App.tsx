@@ -8,6 +8,7 @@ import AssignmentEditPage from "./pages/AssignmentEditPage";
 import SubmissionsPage from "./pages/SubmissionsPage";
 import ProtectedRoute from "./routes/ProtectedRoute";
 import NotFoundPage from "./pages/NotFoundPage";
+import AnalyticsPage from "./pages/Analytics";
 
 export default function App() {
   return (
@@ -20,6 +21,7 @@ export default function App() {
           <Route path="/groups/:groupId" element={<GroupPage />} />
           <Route path="/assignments/new" element={<AssignmentFormPage />} />
           <Route path="/assignments/:assignmentId/edit" element={<AssignmentEditPage />} />
+          <Route path="/analytics" element={<AnalyticsPage />} />
           <Route path="/submissions" element={<SubmissionsPage />}/>
         </Route>
         <Route path="/login" element={<Login />} />
